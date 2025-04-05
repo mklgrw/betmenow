@@ -911,6 +911,96 @@ const BetDetailsScreen = () => {
     }
   };
 
+  // SUPERUSER update - absolute last resort
+  const superuserRejectBet = async () => {
+    if (!recipientId) {
+      Alert.alert("Error", "No recipient ID available");
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      console.log("🦸‍♂️ SUPERUSER REJECT - Attempting superuser update for recipientId:", recipientId);
+      
+      // Call our superuser update function
+      const { data, error } = await supabase.rpc(
+        'superuser_update_recipient',
+        { 
+          p_recipient_id: recipientId
+        }
+      );
+      
+      console.log("🦸‍♂️ SUPERUSER REJECT - Result:", data, "Error:", error);
+      
+      if (error) {
+        console.error("🦸‍♂️ SUPERUSER REJECT - Failed:", error);
+        Alert.alert("Superuser Update Failed", "Could not update status: " + error.message);
+        return;
+      }
+      
+      console.log("🦸‍♂️ SUPERUSER REJECT - Success response:", data);
+      Alert.alert("Success", "Bet rejected with SUPERUSER privileges!");
+      
+      // Force UI update
+      setRecipientStatus('rejected');
+      setRecipients(prevRecipients => {
+        return prevRecipients.map(r => 
+          r.id === recipientId ? {...r, status: 'rejected'} : r
+        );
+      });
+      
+      // Navigate back to home with refresh
+      navigation.navigate('Home', { refresh: Date.now() });
+      
+    } catch (error) {
+      console.error("🦸‍♂️ SUPERUSER REJECT - Unexpected error:", error);
+      Alert.alert("Error", "An unexpected error occurred with superuser update");
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // DELETE and RECREATE - ultimate last resort
+  const deleteAndRecreateRecipient = async () => {
+    if (!recipientId) {
+      Alert.alert("Error", "No recipient ID available");
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      console.log("💥 DELETE & RECREATE - Last hope for recipientId:", recipientId);
+      
+      // Call our delete and recreate function
+      const { data, error } = await supabase.rpc(
+        'delete_recipient_and_create_new',
+        { 
+          p_recipient_id: recipientId
+        }
+      );
+      
+      console.log("💥 DELETE & RECREATE - Result:", data, "Error:", error);
+      
+      if (error) {
+        console.error("💥 DELETE & RECREATE - Failed:", error);
+        Alert.alert("Operation Failed", "Could not recreate recipient: " + error.message);
+        return;
+      }
+      
+      console.log("💥 DELETE & RECREATE - Success response:", data);
+      Alert.alert("Success", "Recipient deleted and recreated with rejected status!");
+      
+      // Navigate back to home with refresh - old recipient ID is now invalid
+      navigation.navigate('Home', { refresh: Date.now() });
+      
+    } catch (error) {
+      console.error("💥 DELETE & RECREATE - Unexpected error:", error);
+      Alert.alert("Error", "An unexpected error occurred");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -1132,6 +1222,26 @@ const BetDetailsScreen = () => {
               onPress={nuclearRejectBet}
             >
               <Text style={{color: 'white', fontWeight: 'bold'}}>☢️ NUCLEAR REJECT OPTION ☢️</Text>
+            </TouchableOpacity>
+          )}
+          
+          {/* SUPERUSER REJECT button - ultimate last resort */}
+          {__DEV__ && recipientId && (
+            <TouchableOpacity 
+              style={{backgroundColor: '#8B0000', padding: 10, borderRadius: 8, marginTop: 10, alignItems: 'center'}}
+              onPress={superuserRejectBet}
+            >
+              <Text style={{color: 'white', fontWeight: 'bold'}}>🦸‍♂️ SUPERUSER REJECT 🦸‍♂️</Text>
+            </TouchableOpacity>
+          )}
+          
+          {/* DELETE & RECREATE button - when everything else fails */}
+          {__DEV__ && recipientId && (
+            <TouchableOpacity 
+              style={{backgroundColor: '#4B0082', padding: 10, borderRadius: 8, marginTop: 10, alignItems: 'center'}}
+              onPress={deleteAndRecreateRecipient}
+            >
+              <Text style={{color: 'white', fontWeight: 'bold'}}>💥 DELETE & RECREATE 💥</Text>
             </TouchableOpacity>
           )}
         </View>

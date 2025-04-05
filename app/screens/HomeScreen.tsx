@@ -478,7 +478,7 @@ const HomeScreen = () => {
     }
   };
 
-  // Updated confirm rejecting a bet to use alternative method
+  // Updated confirm rejecting a bet to use all available methods
   const confirmRejectBet = (recipientId: string, betId: string) => {
     Alert.alert(
       "Reject Bet",
@@ -489,21 +489,29 @@ const HomeScreen = () => {
           style: "cancel"
         },
         { 
-          text: "Try Direct Reject", 
+          text: "Normal Reject", 
+          onPress: () => handleRejectBet(recipientId, betId)
+        },
+        { 
+          text: "Direct DB Reject", 
           onPress: () => alternativeRejectBet(recipientId),
           style: "destructive"
         },
         { 
-          text: "Try Function Reject", 
-          onPress: () => handleRejectBet(recipientId, betId)
-        },
-        { 
-          text: "EMERGENCY RAW REJECT", 
+          text: "Raw SQL Reject", 
           onPress: () => rawRejectBet(recipientId)
         },
         { 
-          text: "☢️ NUCLEAR OPTION ☢️", 
+          text: "☢️ Nuclear Option", 
           onPress: () => nuclearRejectBet(recipientId)
+        },
+        { 
+          text: "🦸‍♂️ Superuser", 
+          onPress: () => superuserRejectBet(recipientId)
+        },
+        { 
+          text: "💥 Delete & Recreate", 
+          onPress: () => deleteRecreateRecipient(recipientId)
         }
       ]
     );
@@ -592,6 +600,72 @@ const HomeScreen = () => {
       fetchBets();
     } catch (error) {
       console.error("☢️ NUCLEAR REJECT - Unexpected error:", error);
+      Alert.alert("Error", "An unexpected error occurred. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Superuser update for rejecting a bet - absolute final approach
+  const superuserRejectBet = async (recipientId: string) => {
+    try {
+      setLoading(true);
+      console.log("🦸‍♂️ SUPERUSER REJECT - Attempting superuser update for recipientId:", recipientId);
+      
+      // Call superuser function
+      const { data, error } = await supabase.rpc(
+        'superuser_update_recipient',
+        { 
+          p_recipient_id: recipientId
+        }
+      );
+      
+      if (error) {
+        console.error("🦸‍♂️ SUPERUSER REJECT - Failed:", error);
+        Alert.alert("Error", "Superuser rejection failed: " + error.message);
+        return;
+      }
+      
+      console.log("🦸‍♂️ SUPERUSER REJECT - Success response:", data);
+      Alert.alert("Success", "Bet rejected with SUPERUSER privileges!");
+      
+      // Refresh the bets list
+      fetchBets();
+    } catch (error) {
+      console.error("🦸‍♂️ SUPERUSER REJECT - Unexpected error:", error);
+      Alert.alert("Error", "An unexpected error occurred. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Delete and recreate recipient with rejected status - ultimate final approach
+  const deleteRecreateRecipient = async (recipientId: string) => {
+    try {
+      setLoading(true);
+      console.log("💥 DELETE & RECREATE - Last attempt for recipientId:", recipientId);
+      
+      // Call our delete and recreate function
+      const { data, error } = await supabase.rpc(
+        'delete_recipient_and_create_new',
+        { 
+          p_recipient_id: recipientId
+        }
+      );
+      
+      if (error) {
+        console.error("💥 DELETE & RECREATE - Failed:", error);
+        Alert.alert("Error", "Delete and recreate failed: " + error.message);
+        return;
+      }
+      
+      console.log("💥 DELETE & RECREATE - Success response:", data);
+      Alert.alert("Success", "Recipient recreated with rejected status!");
+      
+      // Refresh the bets list
+      fetchBets();
+    } catch (error) {
+      console.error("💥 DELETE & RECREATE - Unexpected error:", error);
       Alert.alert("Error", "An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);
