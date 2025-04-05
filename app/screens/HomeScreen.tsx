@@ -374,9 +374,9 @@ const HomeScreen = () => {
       setLoading(true);
       console.log("🔍 REJECT BET - Attempting to reject bet with recipientId:", recipientId);
       
-      // Use the simplified function
+      // Use the admin function
       const { data, error } = await supabase.rpc(
-        'reject_bet_simple',
+        'admin_reject_bet',
         { 
           p_recipient_id: recipientId
         }
@@ -413,9 +413,9 @@ const HomeScreen = () => {
       setLoading(true);
       console.log("🔍 ACCEPT BET - Attempting to accept bet with recipientId:", recipientId);
       
-      // Use the simplified function
+      // Use the admin function
       const { data, error } = await supabase.rpc(
-        'accept_bet_simple',
+        'admin_accept_bet',
         { 
           p_recipient_id: recipientId
         }

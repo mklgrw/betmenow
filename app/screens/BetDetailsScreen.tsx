@@ -210,9 +210,9 @@ const BetDetailsScreen = () => {
       // Update UI immediately for better UX
       setRecipientStatus('in_progress');
       
-      // Call our proper accept function
+      // Call our admin accept function
       const { data, error } = await supabase.rpc(
-        'accept_bet',
+        'admin_accept_bet',
         { 
           p_recipient_id: recipientId
         }
@@ -258,13 +258,15 @@ const BetDetailsScreen = () => {
         Alert.alert("Error", "Failed to accept bet. Please try again.");
       }
     } catch (error) {
-      console.error("❌ Unexpected error:", error);
-      Alert.alert("Error", "An unexpected error occurred");
+      console.error("❌ Unexpected error in handleAcceptBet:", error);
+      Alert.alert("Error", "An unexpected error occurred while accepting the bet. Please try again.");
+      // Revert UI
+      setRecipientStatus('pending');
     } finally {
       setLoading(false);
     }
   };
-  
+
   // Handle rejecting a bet
   const handleRejectBet = async () => {
     if (!recipientId) {
@@ -276,18 +278,18 @@ const BetDetailsScreen = () => {
       setLoading(true);
       console.log("➡️ Rejecting bet with recipientId:", recipientId);
       
-      // Immediately update UI for better UX
+      // Update UI immediately for better UX
       setRecipientStatus('rejected');
       
-      // Call the proper reject function
+      // Call our admin reject function
       const { data, error } = await supabase.rpc(
-        'reject_bet',
+        'admin_reject_bet',
         { 
           p_recipient_id: recipientId
         }
       );
       
-      console.log("➡️ Rejection result:", data, "Error:", error);
+      console.log("➡️ Reject result:", data, "Error:", error);
       
       if (error) {
         console.error("❌ Error rejecting bet:", error);
@@ -326,8 +328,10 @@ const BetDetailsScreen = () => {
         Alert.alert("Error", "Failed to reject bet. Please try again.");
       }
     } catch (error) {
-      console.error("❌ Unexpected error:", error);
-      Alert.alert("Error", "An unexpected error occurred");
+      console.error("❌ Unexpected error in handleRejectBet:", error);
+      Alert.alert("Error", "An unexpected error occurred while rejecting the bet. Please try again.");
+      // Revert UI
+      setRecipientStatus('pending');
     } finally {
       setLoading(false);
     }
