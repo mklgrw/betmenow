@@ -30,12 +30,27 @@ BEGIN
   END IF;
 END $$;
 
--- Update tables to use enum type
+-- Update tables to use enum type - properly handling default values
+-- First drop defaults, then change types, then add defaults back
+ALTER TABLE IF EXISTS bets 
+  ALTER COLUMN status DROP DEFAULT;
+
+ALTER TABLE IF EXISTS bet_recipients 
+  ALTER COLUMN status DROP DEFAULT;
+
+-- Now change the types
 ALTER TABLE IF EXISTS bets
   ALTER COLUMN status TYPE bet_status_type USING status::bet_status_type;
 
 ALTER TABLE IF EXISTS bet_recipients
   ALTER COLUMN status TYPE bet_status_type USING status::bet_status_type;
+
+-- Add back defaults with proper type
+ALTER TABLE IF EXISTS bets
+  ALTER COLUMN status SET DEFAULT 'pending'::bet_status_type;
+
+ALTER TABLE IF EXISTS bet_recipients
+  ALTER COLUMN status SET DEFAULT 'pending'::bet_status_type;
 
 ------------------------------------------------------------
 -- 2. PROPER PERMISSION MODEL
@@ -284,20 +299,41 @@ AS $$
 DECLARE
   fixed_recipients INTEGER := 0;
   fixed_bets INTEGER := 0;
+  v_error TEXT;
 BEGIN
-  -- Fix any recipients with bad status values
-  UPDATE bet_recipients 
-  SET status = 'rejected'::bet_status_type
-  WHERE status::text = 'rejected' AND status IS NOT NULL;
-  
-  GET DIAGNOSTICS fixed_recipients = ROW_COUNT;
-  
-  -- Fix any bets with bad status values
-  UPDATE bets
-  SET status = 'rejected'::bet_status_type
-  WHERE status::text = 'rejected' AND status IS NOT NULL;
-  
-  GET DIAGNOSTICS fixed_bets = ROW_COUNT;
+  -- Make sure constraints are properly set
+  BEGIN
+    -- Fix any recipients with bad status values
+    UPDATE bet_recipients 
+    SET status = 'rejected'::bet_status_type
+    WHERE status::text = 'rejected' AND status IS NOT NULL;
+    
+    GET DIAGNOSTICS fixed_recipients = ROW_COUNT;
+    
+    -- Fix any bets with bad status values
+    UPDATE bets
+    SET status = 'rejected'::bet_status_type
+    WHERE status::text = 'rejected' AND status IS NOT NULL;
+    
+    GET DIAGNOSTICS fixed_bets = ROW_COUNT;
+    
+    -- Make sure both tables have the same constraints
+    ALTER TABLE IF EXISTS bets
+      DROP CONSTRAINT IF EXISTS bets_status_check;
+      
+    ALTER TABLE IF EXISTS bet_recipients
+      DROP CONSTRAINT IF EXISTS bet_recipients_status_check;
+      
+    -- Ensure default values are correct
+    ALTER TABLE IF EXISTS bets
+      ALTER COLUMN status SET DEFAULT 'pending'::bet_status_type;
+      
+    ALTER TABLE IF EXISTS bet_recipients
+      ALTER COLUMN status SET DEFAULT 'pending'::bet_status_type;
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_error = PG_EXCEPTION_DETAIL;
+    RETURN 'Error fixing data: ' || SQLERRM || ' - ' || v_error;
+  END;
   
   RETURN 'Fixed ' || fixed_recipients || ' recipients and ' || fixed_bets || ' bets';
 END;
@@ -310,4 +346,94 @@ GRANT EXECUTE ON FUNCTION one_time_fix_bet_data() TO bet_manager;
 DO $$
 BEGIN
   RAISE NOTICE 'Database schema updated successfully with proper permissions and security';
-END $$; 
+END $$;
+
+------------------------------------------------------------
+-- 8. ALTERNATIVE MIGRATION APPROACH
+------------------------------------------------------------
+
+-- If the enum conversion is causing issues, this function provides
+-- an alternative approach that keeps the text fields but fixes constraints
+CREATE OR REPLACE FUNCTION alternative_migration()
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER -- Run with elevated privileges
+AS $$
+DECLARE
+  v_error TEXT;
+BEGIN
+  -- Drop constraints if they exist
+  ALTER TABLE IF EXISTS bets 
+    DROP CONSTRAINT IF EXISTS bets_status_check;
+    
+  ALTER TABLE IF EXISTS bet_recipients 
+    DROP CONSTRAINT IF EXISTS bet_recipients_status_check;
+  
+  -- Add constraints that allow 'rejected'
+  ALTER TABLE IF EXISTS bets
+    ADD CONSTRAINT bets_status_check 
+    CHECK (status IN ('pending', 'in_progress', 'completed', 'rejected', 'cancelled'));
+    
+  ALTER TABLE IF EXISTS bet_recipients
+    ADD CONSTRAINT bet_recipients_status_check 
+    CHECK (status IN ('pending', 'in_progress', 'completed', 'rejected', 'cancelled'));
+  
+  -- Create our functions without using enums
+  CREATE OR REPLACE FUNCTION reject_bet_text(
+    p_recipient_id UUID
+  )
+  RETURNS BOOLEAN
+  LANGUAGE plpgsql
+  SECURITY INVOKER -- Run with caller's privileges
+  AS $$
+  DECLARE
+    v_bet_id UUID;
+    v_user_id UUID;
+  BEGIN
+    -- Get current user
+    v_user_id := auth.uid();
+    
+    -- Get bet ID for this recipient
+    SELECT bet_id INTO v_bet_id 
+    FROM bet_recipients 
+    WHERE id = p_recipient_id;
+    
+    IF v_bet_id IS NULL THEN
+      RETURN FALSE;
+    END IF;
+    
+    -- Check if user is authorized to update this recipient
+    IF NOT EXISTS (
+      SELECT 1 FROM bet_recipients 
+      WHERE id = p_recipient_id AND 
+            (recipient_id = v_user_id OR 
+            EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bet_manager' AND pg_has_role(v_user_id, oid, 'member')))
+    ) THEN
+      RAISE EXCEPTION 'Not authorized to update this bet recipient';
+      RETURN FALSE;
+    END IF;
+    
+    -- Update recipient status
+    UPDATE bet_recipients 
+    SET status = 'rejected'
+    WHERE id = p_recipient_id;
+    
+    RETURN TRUE;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'Error rejecting bet: %', SQLERRM;
+    RETURN FALSE;
+  END;
+  $$;
+  
+  -- Grant permission for text version
+  GRANT EXECUTE ON FUNCTION reject_bet_text(UUID) TO app_user;
+  
+  RETURN 'Alternative migration completed successfully. Use reject_bet_text() function instead.';
+EXCEPTION WHEN OTHERS THEN
+  GET STACKED DIAGNOSTICS v_error = PG_EXCEPTION_DETAIL;
+  RETURN 'Error in alternative migration: ' || SQLERRM || ' - ' || v_error;
+END;
+$$;
+
+-- Grant permission for the alternative migration
+GRANT EXECUTE ON FUNCTION alternative_migration() TO bet_manager; 

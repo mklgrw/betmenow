@@ -42,6 +42,47 @@ This is a comprehensive, secure long-term solution that addresses all the root c
    GRANT bet_manager TO your_admin_user;
    ```
 
+### Handling Enum Conversion Issues
+
+If you encounter errors like `ERROR: 42804: default for column "status" cannot be cast automatically to type bet_status_type`, try these steps:
+
+1. Run the alternative migration that keeps using text fields but fixes constraints:
+   ```sql
+   SELECT alternative_migration();
+   ```
+
+2. After running the alternative migration, use the `reject_bet_text` function instead:
+   ```sql
+   -- In your application code
+   const { data, error } = await supabase.rpc(
+     'reject_bet_text',
+     { 
+       p_recipient_id: recipientId
+     }
+   );
+   ```
+
+3. If you want to try a manual conversion instead, run these statements one by one:
+   ```sql
+   -- Drop default constraints
+   ALTER TABLE bets ALTER COLUMN status DROP DEFAULT;
+   ALTER TABLE bet_recipients ALTER COLUMN status DROP DEFAULT;
+   
+   -- Drop check constraints
+   ALTER TABLE IF EXISTS bets DROP CONSTRAINT IF EXISTS bets_status_check;
+   ALTER TABLE IF EXISTS bet_recipients DROP CONSTRAINT IF EXISTS bet_recipients_status_check;
+   
+   -- Add new check constraints without enum
+   ALTER TABLE bets ADD CONSTRAINT bets_status_check 
+     CHECK (status IN ('pending', 'in_progress', 'completed', 'rejected', 'cancelled'));
+   ALTER TABLE bet_recipients ADD CONSTRAINT bet_recipients_status_check
+     CHECK (status IN ('pending', 'in_progress', 'completed', 'rejected', 'cancelled'));
+     
+   -- Set defaults back
+   ALTER TABLE bets ALTER COLUMN status SET DEFAULT 'pending';
+   ALTER TABLE bet_recipients ALTER COLUMN status SET DEFAULT 'pending';
+   ```
+
 ## Implementation Details
 
 ### Security Model
