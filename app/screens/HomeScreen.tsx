@@ -369,34 +369,32 @@ const HomeScreen = () => {
   };
 
   // Handle accepting a bet
-  const handleAcceptBet = async (recipientId: string, betId: string) => {
+  const handleAcceptBet = async (recipientId: string) => {
     try {
       setLoading(true);
+      console.log("🔍 ACCEPT BET - Attempting to accept bet with recipientId:", recipientId);
       
-      // Update the bet_recipients record to 'accepted'
-      const { error: recipientError } = await supabase
-        .from('bet_recipients')
-        .update({ status: 'in_progress' })
-        .eq('id', recipientId);
-        
-      if (recipientError) {
-        console.error("🔍 ACCEPT BET - Error updating bet recipient status:", recipientError);
+      // Use the properly implemented function
+      const { data, error } = await supabase.rpc(
+        'accept_bet',
+        { 
+          p_recipient_id: recipientId
+        }
+      );
+      
+      if (error) {
+        console.error("🔍 ACCEPT BET - Error accepting bet:", error);
         Alert.alert("Error", "Failed to accept bet. Please try again.");
         return;
       }
       
-      // Update the main bet record to 'in_progress'
-      const { error: betError } = await supabase
-        .from('bets')
-        .update({ status: 'in_progress' })
-        .eq('id', betId);
-        
-      if (betError) {
-        console.error("🔍 ACCEPT BET - Error updating bet status:", betError);
-        Alert.alert("Error", "Failed to update bet. Please try again.");
+      if (data === false) {
+        console.error("🔍 ACCEPT BET - Function returned false");
+        Alert.alert("Error", "Failed to accept bet. Please try again.");
         return;
       }
       
+      console.log("🔍 ACCEPT BET - Successfully accepted");
       Alert.alert("Success", "Bet accepted successfully!");
       
       // Refresh the bets list
@@ -410,21 +408,21 @@ const HomeScreen = () => {
   };
   
   // Handle rejecting a bet
-  const handleRejectBet = async (recipientId: string, betId: string) => {
+  const handleRejectBet = async (recipientId: string) => {
     try {
       setLoading(true);
       console.log("🔍 REJECT BET - Attempting to reject bet with recipientId:", recipientId);
       
-      // Use our specialized rejection function instead of direct update
+      // Use the properly implemented function
       const { data, error } = await supabase.rpc(
-        'reject_bet_recipient',
+        'reject_bet',
         { 
           p_recipient_id: recipientId
         }
       );
       
       if (error) {
-        console.error("🔍 REJECT BET - Error updating bet recipient status:", error);
+        console.error("🔍 REJECT BET - Error rejecting bet:", error);
         Alert.alert("Error", "Failed to reject bet. Please try again.");
         return;
       }
@@ -490,7 +488,7 @@ const HomeScreen = () => {
         },
         { 
           text: "Normal Reject", 
-          onPress: () => handleRejectBet(recipientId, betId)
+          onPress: () => handleRejectBet(recipientId)
         },
         { 
           text: "Direct DB Reject", 
@@ -529,7 +527,7 @@ const HomeScreen = () => {
         },
         { 
           text: "Accept", 
-          onPress: () => handleAcceptBet(recipientId, betId)
+          onPress: () => handleAcceptBet(recipientId)
         }
       ]
     );

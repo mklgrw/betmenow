@@ -198,35 +198,27 @@ const BetDetailsScreen = () => {
 
   // Handle accepting a bet
   const handleAcceptBet = async () => {
-    if (!recipientId || !betId) {
-      Alert.alert("Error", "Missing recipient or bet ID");
+    if (!recipientId) {
+      Alert.alert("Error", "No recipient ID available");
       return;
     }
     
     try {
       setLoading(true);
-      console.log("➡️ Accepting bet with recipientId:", recipientId, "betId:", betId);
+      console.log("➡️ Accepting bet with recipientId:", recipientId);
       
-      // Immediately update UI for better UX
+      // Update UI immediately for better UX
       setRecipientStatus('in_progress');
       
-      // Call our direct update function
-      console.log("➡️ Calling direct_update_bet_status with params:", {
-        p_recipient_id: recipientId,
-        p_bet_id: betId,
-        p_status: 'in_progress'
-      });
-      
+      // Call our proper accept function
       const { data, error } = await supabase.rpc(
-        'direct_update_bet_status',
+        'accept_bet',
         { 
-          p_recipient_id: recipientId,
-          p_bet_id: betId,
-          p_status: 'in_progress'
+          p_recipient_id: recipientId
         }
       );
       
-      console.log("➡️ Direct update result:", data, "Error:", error);
+      console.log("➡️ Accept result:", data, "Error:", error);
       
       if (error) {
         console.error("❌ Error accepting bet:", error);
@@ -275,23 +267,21 @@ const BetDetailsScreen = () => {
   
   // Handle rejecting a bet
   const handleRejectBet = async () => {
-    if (!recipientId || !betId) {
-      Alert.alert("Error", "Missing recipient or bet ID");
+    if (!recipientId) {
+      Alert.alert("Error", "No recipient ID available");
       return;
     }
     
     try {
       setLoading(true);
-      console.log("➡️ Rejecting bet with recipientId:", recipientId, "betId:", betId);
+      console.log("➡️ Rejecting bet with recipientId:", recipientId);
       
       // Immediately update UI for better UX
       setRecipientStatus('rejected');
       
-      // Call our specialized rejection function
-      console.log("➡️ Calling reject_bet_recipient with recipientId:", recipientId);
-      
+      // Call the proper reject function
       const { data, error } = await supabase.rpc(
-        'reject_bet_recipient',
+        'reject_bet',
         { 
           p_recipient_id: recipientId
         }
