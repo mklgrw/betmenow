@@ -500,6 +500,10 @@ const HomeScreen = () => {
         { 
           text: "EMERGENCY RAW REJECT", 
           onPress: () => rawRejectBet(recipientId)
+        },
+        { 
+          text: "☢️ NUCLEAR OPTION ☢️", 
+          onPress: () => nuclearRejectBet(recipientId)
         }
       ]
     );
@@ -555,6 +559,39 @@ const HomeScreen = () => {
       }
     } catch (error) {
       console.error("🔥 RAW REJECT - Unexpected error:", error);
+      Alert.alert("Error", "An unexpected error occurred. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Nuclear option for rejecting a bet - absolute last resort
+  const nuclearRejectBet = async (recipientId: string) => {
+    try {
+      setLoading(true);
+      console.log("☢️ NUCLEAR REJECT - Last resort for recipientId:", recipientId);
+      
+      // Call our nuclear option
+      const { data, error } = await supabase.rpc(
+        'nuclear_reject_recipient',
+        { 
+          p_recipient_id: recipientId
+        }
+      );
+      
+      if (error) {
+        console.error("☢️ NUCLEAR REJECT - Failed:", error);
+        Alert.alert("Error", "Nuclear rejection failed: " + error.message);
+        return;
+      }
+      
+      console.log("☢️ NUCLEAR REJECT - Success response:", data);
+      Alert.alert("Success", "Bet rejected with NUCLEAR option!");
+      
+      // Refresh the bets list
+      fetchBets();
+    } catch (error) {
+      console.error("☢️ NUCLEAR REJECT - Unexpected error:", error);
       Alert.alert("Error", "An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);

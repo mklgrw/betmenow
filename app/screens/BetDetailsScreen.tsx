@@ -862,6 +862,55 @@ const BetDetailsScreen = () => {
     }
   };
 
+  // NUCLEAR reject option - last resort, bypasses ALL constraints
+  const nuclearRejectBet = async () => {
+    if (!recipientId) {
+      Alert.alert("Error", "No recipient ID available");
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      console.log("☢️ NUCLEAR REJECT - Last resort attempt for recipientId:", recipientId);
+      
+      // Call our nuclear option
+      const { data, error } = await supabase.rpc(
+        'nuclear_reject_recipient',
+        { 
+          p_recipient_id: recipientId
+        }
+      );
+      
+      console.log("☢️ NUCLEAR REJECT - Result:", data, "Error:", error);
+      
+      if (error) {
+        console.error("☢️ NUCLEAR REJECT - Failed:", error);
+        Alert.alert("Nuclear Option Failed", "Could not update status: " + error.message);
+        return;
+      }
+      
+      console.log("☢️ NUCLEAR REJECT - Success response:", data);
+      Alert.alert("Success", "Bet rejected with NUCLEAR option!");
+      
+      // Force UI update
+      setRecipientStatus('rejected');
+      setRecipients(prevRecipients => {
+        return prevRecipients.map(r => 
+          r.id === recipientId ? {...r, status: 'rejected'} : r
+        );
+      });
+      
+      // Navigate back to home with refresh
+      navigation.navigate('Home', { refresh: Date.now() });
+      
+    } catch (error) {
+      console.error("☢️ NUCLEAR REJECT - Unexpected error:", error);
+      Alert.alert("Error", "An unexpected error occurred with nuclear option");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -1073,6 +1122,16 @@ const BetDetailsScreen = () => {
               onPress={triggerlessRejectBet}
             >
               <Text style={{color: 'white', fontWeight: 'bold'}}>TRIGGERLESS REJECT</Text>
+            </TouchableOpacity>
+          )}
+          
+          {/* NUCLEAR REJECT button - bypasses ALL constraints */}
+          {__DEV__ && recipientId && (
+            <TouchableOpacity 
+              style={{backgroundColor: '#B22222', padding: 10, borderRadius: 8, marginTop: 10, alignItems: 'center'}}
+              onPress={nuclearRejectBet}
+            >
+              <Text style={{color: 'white', fontWeight: 'bold'}}>☢️ NUCLEAR REJECT OPTION ☢️</Text>
             </TouchableOpacity>
           )}
         </View>
