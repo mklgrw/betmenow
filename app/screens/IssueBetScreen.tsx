@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,20 +7,23 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   Alert,
+  Modal,
+  FlatList,
+  Dimensions,
+  ScrollView,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
-import { supabase } from '../services/supabase';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { useAuth } from '../context/AuthContext';
+import { supabase, createBetRecipientsTable, createTableWithSQL, addBetRecipients } from '../services/supabase';
 
 type MainStackParamList = {
   Home: undefined;
   IssueBet: undefined;
-  SelectFriends: undefined;
+  SelectFriends: { onFriendsSelected: (friendIds: string[]) => void };
 };
 
 type IssueBetScreenNavigationProp = StackNavigationProp<MainStackParamList, 'IssueBet'>;
@@ -31,11 +34,58 @@ const IssueBetScreen = () => {
   const [dueDate, setDueDate] = useState(new Date());
   const [isPublic, setIsPublic] = useState(true);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [recipientType, setRecipientType] = useState<'select' | 'anyone'>('select');
   const [loading, setLoading] = useState(false);
+  const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([]);
+  const [selectedFriends, setSelectedFriends] = useState<any[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedHour, setSelectedHour] = useState(8);
+  const [selectedMinute, setSelectedMinute] = useState(0);
+  const [selectedAmPm, setSelectedAmPm] = useState<'AM' | 'PM'>('AM');
 
   const navigation = useNavigation<IssueBetScreenNavigationProp>();
   const theme = useTheme();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    // Check if bet_recipients table exists and create it if not
+    const initializeTables = async () => {
+      console.log('Checking if bet_recipients table exists...');
+      const { data, error } = await createBetRecipientsTable();
+      console.log('Bet recipients table check result:', data, error);
+    };
+    
+    initializeTables();
+  }, []);
+
+  useEffect(() => {
+    const fetchSelectedFriendDetails = async () => {
+      if (selectedFriendIds.length === 0) {
+        setSelectedFriends([]);
+        return;
+      }
+      
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('id, username, display_name, email')
+          .in('id', selectedFriendIds);
+        
+        if (error) {
+          console.error('Error fetching selected friend details:', error);
+          return;
+        }
+        
+        setSelectedFriends(data || []);
+      } catch (e) {
+        console.error('Exception fetching friend details:', e);
+      }
+    };
+    
+    fetchSelectedFriendDetails();
+  }, [selectedFriendIds]);
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', {
@@ -45,34 +95,91 @@ const IssueBetScreen = () => {
     });
   };
 
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  };
+
+  const formatDateTime = (date: Date) => {
+    return `${formatDate(date)} at ${formatTime(date)}`;
+  };
+
   const handleIssueBet = async () => {
-    if (!description || !stake) {
-      Alert.alert('Error', 'Please fill in all required fields');
+    if (!description || !stake || !dueDate) {
+      Alert.alert('Error', 'Please fill in all fields');
       return;
     }
 
-    setLoading(true);
-
     try {
-      // Create bet in Supabase
-      const { data, error } = await supabase.from('bets').insert({
+      setLoading(true);
+      console.log('Creating bet with:', { description, stake, dueDate, recipientType });
+
+      // Basic bet data - matching the actual database schema
+      const betData = {
         description,
         stake: parseFloat(stake),
         due_date: dueDate.toISOString(),
-        visibility: isPublic ? 'public' : 'private',
         status: 'pending',
-        // Add other fields like creator_id and recipient_ids
-      });
+        creator_id: user?.id,
+        visibility: isPublic ? 'public' : 'private'
+      };
+
+      console.log('Bet data to insert:', betData);
+
+      // Create the bet
+      const { data, error } = await supabase
+        .from('bets')
+        .insert([betData])
+        .select();
 
       if (error) {
-        Alert.alert('Error', error.message || 'Failed to create bet');
+        console.error('Error creating bet:', error);
+        Alert.alert('Error', 'Failed to create bet: ' + error.message);
+        setLoading(false);
         return;
       }
 
+      if (!data || data.length === 0) {
+        console.error('No data returned after bet creation');
+        Alert.alert('Error', 'Failed to create bet: No data returned');
+        setLoading(false);
+        return;
+      }
+
+      const newBetId = data[0].id;
+      console.log(`Created bet with ID: ${newBetId}`);
+      
+      // Now add the recipients separately if we have selected friends
+      if (recipientType === 'select' && selectedFriendIds.length > 0) {
+        console.log(`Adding ${selectedFriendIds.length} recipients to bet ${newBetId}`);
+        
+        // Add recipients using the imported function
+        const { success, error } = await addBetRecipients(newBetId, selectedFriendIds);
+        
+        if (!success) {
+          console.error('Error adding recipients:', error);
+          Alert.alert('Warning', 'Bet created, but failed to add some recipients.');
+        } else {
+          console.log('Recipients added successfully');
+        }
+      }
+
       Alert.alert('Success', 'Bet created successfully');
-      navigation.navigate('Home');
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'An unexpected error occurred');
+      
+      // Small delay before navigation to make sure the database has time to process
+      setTimeout(() => {
+        console.log("⏱️ Navigating to Home with refresh param:", Date.now());
+        // Navigate back to Home with simpler parameters
+        navigation.navigate('Home', { 
+          activeTab: 'pending'  // Tell Home screen to switch to pending tab
+        });
+      }, 500);
+    } catch (e) {
+      console.error('Exception in bet creation:', e);
+      Alert.alert('Error', 'An unexpected error occurred');
     } finally {
       setLoading(false);
     }
@@ -80,137 +187,514 @@ const IssueBetScreen = () => {
 
   const handleSelectFriends = () => {
     // Navigate to friends selection screen
-    navigation.navigate('SelectFriends');
+    navigation.navigate('SelectFriends', {
+      onFriendsSelected: (friendIds: string[]) => {
+        setSelectedFriendIds(friendIds);
+      }
+    });
   };
 
-  const handleDateChange = (event: any, selectedDate?: Date) => {
+  const handleDateSelect = (day: number) => {
+    const newDate = new Date(dueDate);
+    newDate.setFullYear(selectedYear);
+    newDate.setMonth(selectedMonth);
+    newDate.setDate(day);
+    setDueDate(newDate);
     setShowDatePicker(false);
-    if (selectedDate) {
-      setDueDate(selectedDate);
-    }
+    setShowTimePicker(true);
   };
+
+  const handleTimeSelect = () => {
+    const newDate = new Date(dueDate);
+    let hour = selectedHour;
+    
+    // Convert from 12-hour to 24-hour format
+    if (selectedAmPm === 'PM' && selectedHour < 12) {
+      hour += 12;
+    }
+    if (selectedAmPm === 'AM' && selectedHour === 12) {
+      hour = 0;
+    }
+    
+    newDate.setHours(hour);
+    newDate.setMinutes(selectedMinute);
+    setDueDate(newDate);
+    setShowTimePicker(false);
+  };
+
+  const renderCalendarHeader = () => {
+    const months = [
+      'JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 
+      'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'
+    ];
+    
+    return (
+      <View style={styles.calendarHeader}>
+        <TouchableOpacity onPress={() => {
+          if (selectedMonth === 0) {
+            setSelectedMonth(11);
+            setSelectedYear(selectedYear - 1);
+          } else {
+            setSelectedMonth(selectedMonth - 1);
+          }
+        }}>
+          <Ionicons name="chevron-back" size={24} color="white" />
+        </TouchableOpacity>
+        <Text style={styles.calendarMonthYear}>
+          {months[selectedMonth]}
+          <Text style={styles.calendarYear}>{"\n"}{selectedYear}</Text>
+        </Text>
+        <TouchableOpacity onPress={() => {
+          if (selectedMonth === 11) {
+            setSelectedMonth(0);
+            setSelectedYear(selectedYear + 1);
+          } else {
+            setSelectedMonth(selectedMonth + 1);
+          }
+        }}>
+          <Ionicons name="chevron-forward" size={24} color="white" />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderCalendarDays = () => {
+    const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    
+    return (
+      <View style={styles.calendarDaysRow}>
+        {days.map((day, index) => (
+          <View key={index} style={styles.calendarDayCell}>
+            <Text style={[
+              styles.calendarDayText, 
+              index === 0 || index === 6 ? styles.calendarWeekendText : {}
+            ]}>
+              {day}
+            </Text>
+          </View>
+        ))}
+      </View>
+    );
+  };
+
+  const renderCalendarDates = () => {
+    // Get the first day of the month
+    const firstDay = new Date(selectedYear, selectedMonth, 1).getDay();
+    // Get the last day of the month
+    const lastDate = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+    // Get the last day of the previous month
+    const prevMonthLastDate = new Date(selectedYear, selectedMonth, 0).getDate();
+    
+    // Create an array for all calendar cells
+    const calendarDates = [];
+    
+    // Previous month dates
+    for (let i = 0; i < firstDay; i++) {
+      calendarDates.push({
+        day: prevMonthLastDate - firstDay + i + 1,
+        currentMonth: false,
+        prevMonth: true,
+      });
+    }
+    
+    // Current month dates
+    for (let i = 1; i <= lastDate; i++) {
+      calendarDates.push({
+        day: i,
+        currentMonth: true,
+        prevMonth: false,
+      });
+    }
+    
+    // Next month dates to fill the last row
+    const remainingCells = 7 - (calendarDates.length % 7);
+    if (remainingCells < 7) {
+      for (let i = 1; i <= remainingCells; i++) {
+        calendarDates.push({
+          day: i,
+          currentMonth: false,
+          prevMonth: false,
+        });
+      }
+    }
+    
+    // Current date
+    const currentDate = new Date();
+    const isToday = (date: number) => 
+      currentDate.getDate() === date && 
+      currentDate.getMonth() === selectedMonth && 
+      currentDate.getFullYear() === selectedYear;
+
+    const isSelectedDate = (date: number) =>
+      dueDate.getDate() === date &&
+      dueDate.getMonth() === selectedMonth &&
+      dueDate.getFullYear() === selectedYear;
+    
+    // Render weeks
+    const weeks = [];
+    for (let i = 0; i < calendarDates.length; i += 7) {
+      const week = calendarDates.slice(i, i + 7);
+      weeks.push(
+        <View key={i} style={styles.calendarWeekRow}>
+          {week.map((item, index) => (
+            <TouchableOpacity
+              key={index}
+              style={[
+                styles.calendarDateCell,
+                item.currentMonth ? styles.currentMonthCell : styles.otherMonthCell,
+                isToday(item.day) && item.currentMonth ? styles.todayCell : {},
+                isSelectedDate(item.day) && item.currentMonth ? styles.selectedDateCell : {},
+              ]}
+              onPress={() => item.currentMonth ? handleDateSelect(item.day) : null}
+              disabled={!item.currentMonth}
+            >
+              <Text style={[
+                styles.calendarDateText,
+                !item.currentMonth ? styles.otherMonthText : {},
+                isToday(item.day) && item.currentMonth ? styles.todayText : {},
+                isSelectedDate(item.day) && item.currentMonth ? styles.selectedDateText : {},
+                (index === 0 || index === 6) && item.currentMonth ? styles.calendarWeekendText : {},
+              ]}>
+                {item.day}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      );
+    }
+    
+    return <View style={styles.calendarDatesContainer}>{weeks}</View>;
+  };
+
+  const renderHourSelector = () => {
+    const hours = Array.from({ length: 12 }, (_, i) => i + 1);
+    const minutes = Array.from({ length: 60 }, (_, i) => i);
+    
+    return (
+      <View style={styles.timeSelector}>
+        <Text style={styles.timeSelectorLabel}>Choose Time</Text>
+        <View style={styles.timeSelectorContainer}>
+          {/* Hour picker */}
+          <ScrollView 
+            style={styles.timePickerScrollView}
+            contentContainerStyle={styles.timePickerScrollContent}
+            showsVerticalScrollIndicator={false}
+            snapToInterval={50}
+            decelerationRate="fast"
+            scrollEventThrottle={16}
+            onMomentumScrollEnd={(event) => {
+              const y = event.nativeEvent.contentOffset.y;
+              const index = Math.round(y / 50);
+              const hour = hours[index % hours.length];
+              setSelectedHour(hour);
+            }}
+          >
+            {/* Add empty items at top for padding */}
+            <View style={styles.timePickerItemWrapper}>
+              <Text style={[styles.timePickerItem, styles.unselectedTimeItem]}>{''}</Text>
+            </View>
+            <View style={styles.timePickerItemWrapper}>
+              <Text style={[styles.timePickerItem, styles.unselectedTimeItem]}>{''}</Text>
+            </View>
+            
+            {hours.map((hour) => (
+              <TouchableOpacity 
+                key={`hour-${hour}`} 
+                style={styles.timePickerItemWrapper}
+                onPress={() => setSelectedHour(hour)}
+              >
+                <Text style={[
+                  styles.timePickerItem,
+                  selectedHour === hour ? styles.selectedTimeItem : styles.unselectedTimeItem
+                ]}>
+                  {hour.toString().padStart(2, '0')}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            
+            {/* Add empty items at bottom for padding */}
+            <View style={styles.timePickerItemWrapper}>
+              <Text style={[styles.timePickerItem, styles.unselectedTimeItem]}>{''}</Text>
+            </View>
+            <View style={styles.timePickerItemWrapper}>
+              <Text style={[styles.timePickerItem, styles.unselectedTimeItem]}>{''}</Text>
+            </View>
+          </ScrollView>
+          
+          <Text style={styles.timePickerSeparator}>:</Text>
+          
+          {/* Minute picker */}
+          <ScrollView 
+            style={styles.timePickerScrollView}
+            contentContainerStyle={styles.timePickerScrollContent}
+            showsVerticalScrollIndicator={false}
+            snapToInterval={50}
+            decelerationRate="fast"
+            scrollEventThrottle={16}
+            onMomentumScrollEnd={(event) => {
+              const y = event.nativeEvent.contentOffset.y;
+              const index = Math.round(y / 50);
+              const minute = minutes[index % minutes.length];
+              setSelectedMinute(minute);
+            }}
+          >
+            {/* Add empty items at top for padding */}
+            <View style={styles.timePickerItemWrapper}>
+              <Text style={[styles.timePickerItem, styles.unselectedTimeItem]}>{''}</Text>
+            </View>
+            <View style={styles.timePickerItemWrapper}>
+              <Text style={[styles.timePickerItem, styles.unselectedTimeItem]}>{''}</Text>
+            </View>
+            
+            {minutes.map((minute) => (
+              <TouchableOpacity 
+                key={`minute-${minute}`} 
+                style={styles.timePickerItemWrapper}
+                onPress={() => setSelectedMinute(minute)}
+              >
+                <Text style={[
+                  styles.timePickerItem,
+                  selectedMinute === minute ? styles.selectedTimeItem : styles.unselectedTimeItem
+                ]}>
+                  {minute.toString().padStart(2, '0')}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            
+            {/* Add empty items at bottom for padding */}
+            <View style={styles.timePickerItemWrapper}>
+              <Text style={[styles.timePickerItem, styles.unselectedTimeItem]}>{''}</Text>
+            </View>
+            <View style={styles.timePickerItemWrapper}>
+              <Text style={[styles.timePickerItem, styles.unselectedTimeItem]}>{''}</Text>
+            </View>
+          </ScrollView>
+          
+          {/* AM/PM selector */}
+          <View style={styles.amPmSelectorContainer}>
+            <TouchableOpacity 
+              style={[
+                styles.amPmButton,
+                selectedAmPm === 'AM' ? styles.activeAmPmButton : {}
+              ]}
+              onPress={() => setSelectedAmPm('AM')}
+            >
+              <Text style={[
+                styles.amPmButtonText,
+                selectedAmPm === 'AM' ? styles.activeAmPmButtonText : {}
+              ]}>
+                AM
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[
+                styles.amPmButton,
+                selectedAmPm === 'PM' ? styles.activeAmPmButton : {}
+              ]}
+              onPress={() => setSelectedAmPm('PM')}
+            >
+              <Text style={[
+                styles.amPmButtonText,
+                selectedAmPm === 'PM' ? styles.activeAmPmButtonText : {}
+              ]}>
+                PM
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        
+        {/* Selection indicator */}
+        <View style={styles.timePickerSelectionIndicator} />
+      </View>
+    );
+  };
+
+  const renderDatePicker = () => (
+    <Modal
+      transparent={true}
+      visible={showDatePicker}
+      animationType="fade"
+      onRequestClose={() => setShowDatePicker(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.calendarContainer}>
+          {renderCalendarHeader()}
+          {renderCalendarDays()}
+          {renderCalendarDates()}
+          <View style={styles.calendarFooter}>
+            <TouchableOpacity 
+              style={styles.calendarFooterButton}
+              onPress={() => setShowDatePicker(false)}
+            >
+              <Text style={styles.calendarFooterButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.calendarFooterButton, styles.calendarChooseButton]}
+              onPress={() => {
+                setShowDatePicker(false);
+                setShowTimePicker(true);
+              }}
+            >
+              <Text style={styles.calendarChooseButtonText}>Choose Time</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const renderTimePicker = () => (
+    <Modal
+      transparent={true}
+      visible={showTimePicker}
+      animationType="fade"
+      onRequestClose={() => setShowTimePicker(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.timePickerContainer}>
+          {renderHourSelector()}
+          <TouchableOpacity 
+            style={styles.timePickerButton}
+            onPress={handleTimeSelect}
+          >
+            <Text style={styles.timePickerButtonText}>Done</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={24} color="white" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Issue a Bet</Text>
-          <View style={styles.placeholder} />
+      <View style={styles.header}>
+        <TouchableOpacity 
+          style={styles.closeButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="close" size={24} color="white" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Issue Bet</Text>
+      </View>
+
+      <TouchableOpacity style={styles.visibilityRow} onPress={() => setIsPublic(!isPublic)}>
+        <Ionicons name="globe-outline" size={24} color="white" />
+        <Text style={styles.visibilityText}>Public</Text>
+        <Ionicons name="chevron-forward" size={24} color="#666" />
+      </TouchableOpacity>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Bet</Text>
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputEmoji}>🤝</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="What's the bet?"
+            placeholderTextColor="#777"
+            value={description}
+            onChangeText={setDescription}
+            multiline
+          />
         </View>
+      </View>
 
-        <View style={styles.formContainer}>
-          <View style={styles.inputContainer}>
-            <Ionicons name="hand" size={24} color="#AAAAAA" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="What's the bet?"
-              placeholderTextColor="#AAAAAA"
-              value={description}
-              onChangeText={setDescription}
-              multiline
-            />
-          </View>
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Stake</Text>
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputEmoji}>💰</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="How much $$$ is on the line?"
+            placeholderTextColor="#777"
+            value={stake}
+            onChangeText={setStake}
+            keyboardType="numeric"
+          />
+        </View>
+      </View>
 
-          <View style={styles.inputContainer}>
-            <Ionicons name="cash-outline" size={24} color="#AAAAAA" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="How much $$$ is on the line?"
-              placeholderTextColor="#AAAAAA"
-              value={stake}
-              onChangeText={setStake}
-              keyboardType="numeric"
-            />
-          </View>
-
-          <View style={styles.recipientContainer}>
-            <Text style={styles.sectionTitle}>Who's the recipient?</Text>
-            <View style={styles.buttonRow}>
-              <TouchableOpacity
-                style={[
-                  styles.buttonOption,
-                  recipientType === 'select' && styles.buttonOptionActive,
-                ]}
-                onPress={() => setRecipientType('select')}
-              >
-                <Text style={styles.buttonText}>Select</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.buttonOption,
-                  recipientType === 'anyone' && styles.buttonOptionActive,
-                ]}
-                onPress={() => setRecipientType('anyone')}
-              >
-                <Text style={styles.buttonText}>Anyone</Text>
-              </TouchableOpacity>
-            </View>
-
-            {recipientType === 'select' && (
-              <TouchableOpacity 
-                style={styles.selectFriendsButton}
-                onPress={handleSelectFriends}
-              >
-                <Text style={styles.selectFriendsText}>Select Friends</Text>
-                <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <TouchableOpacity 
-            style={styles.dateContainer}
-            onPress={() => setShowDatePicker(true)}
-          >
-            <Ionicons name="calendar" size={24} color="#AAAAAA" style={styles.inputIcon} />
-            <Text style={styles.dateText}>
-              {dueDate ? formatDate(dueDate) : "When does the bet end?"}
-            </Text>
-          </TouchableOpacity>
-
-          {showDatePicker && (
-            <DateTimePicker
-              value={dueDate}
-              mode="date"
-              display="default"
-              onChange={handleDateChange}
-              minimumDate={new Date()}
-            />
-          )}
-
-          <View style={styles.visibilityContainer}>
-            <Text style={styles.sectionTitle}>Visibility</Text>
-            <TouchableOpacity 
-              style={styles.visibilitySelector}
-              onPress={() => setIsPublic(!isPublic)}
-            >
-              <Ionicons name="globe" size={20} color="#FFFFFF" />
-              <Text style={styles.visibilityText}>
-                {isPublic ? 'Public' : 'Private'}
-              </Text>
-              <Ionicons name="chevron-down" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
-
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Recipient</Text>
+        <View style={styles.buttonContainer}>
           <TouchableOpacity
-            style={styles.issueButton}
-            onPress={handleIssueBet}
-            disabled={loading}
+            style={[
+              styles.button,
+              recipientType === 'select' ? styles.activeButton : styles.inactiveButton
+            ]}
+            onPress={() => setRecipientType('select')}
           >
-            <Text style={styles.issueButtonText}>
-              {loading ? 'Creating...' : 'Issue'}
-            </Text>
+            <Text style={styles.buttonText}>Select</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.button,
+              recipientType === 'anyone' ? styles.activeButton : styles.inactiveButton
+            ]}
+            onPress={() => setRecipientType('anyone')}
+          >
+            <Text style={styles.buttonText}>Anyone</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+      </View>
+
+      {recipientType === 'select' && (
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.selectFriendsButton}
+            onPress={handleSelectFriends}
+          >
+            <Ionicons name="people-outline" size={20} color="white" style={styles.selectFriendsIcon} />
+            <Text style={styles.selectFriendsText}>
+              {selectedFriendIds.length > 0 
+                ? `${selectedFriendIds.length} friends selected` 
+                : 'Select friends to bet with'}
+            </Text>
+            <Ionicons name="chevron-forward" size={20} color="#666" />
+          </TouchableOpacity>
+          
+          {selectedFriends.length > 0 && (
+            <View style={styles.selectedFriendsContainer}>
+              {selectedFriends.map(friend => (
+                <View key={friend.id} style={styles.selectedFriendChip}>
+                  <Text style={styles.selectedFriendName}>
+                    {friend.display_name || friend.username || friend.email?.split('@')[0] || 'User'}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Due Date</Text>
+        <TouchableOpacity 
+          style={styles.inputContainer}
+          onPress={() => setShowDatePicker(true)}
+        >
+          <Text style={styles.inputEmoji}>📅</Text>
+          <Text style={styles.dateText}>
+            {dueDate ? formatDateTime(dueDate) : "When does the bet end?"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {renderDatePicker()}
+      {renderTimePicker()}
+
+      <View style={styles.buttonWrapper}>
+        <TouchableOpacity
+          style={styles.issueButton}
+          onPress={handleIssueBet}
+          disabled={loading}
+        >
+          <Text style={styles.issueButtonText}>
+            {loading ? 'Creating...' : 'Issue'}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </KeyboardAvoidingView>
   );
 };
@@ -218,126 +702,351 @@ const IssueBetScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
-  },
-  scrollContent: {
-    flexGrow: 1,
+    backgroundColor: '#121212',
     padding: 20,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: 30,
-    paddingTop: 50,
+    marginTop: 10,
   },
-  backButton: {
+  closeButton: {
     padding: 5,
+    marginRight: 15,
   },
   headerTitle: {
     color: '#FFFFFF',
-    fontSize: 20,
+    fontSize: 32,
     fontWeight: 'bold',
   },
-  placeholder: {
-    width: 30,
+  visibilityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+    marginBottom: 20,
   },
-  formContainer: {
+  visibilityText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    marginLeft: 10,
     flex: 1,
+  },
+  section: {
+    marginBottom: 20,
+  },
+  sectionLabel: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    marginBottom: 10,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#333333',
-    borderRadius: 10,
-    marginBottom: 20,
-    paddingHorizontal: 15,
-    paddingVertical: 5,
+    backgroundColor: '#1E1E1E',
+    borderRadius: 8,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: '#333',
   },
-  inputIcon: {
+  inputEmoji: {
+    fontSize: 20,
     marginRight: 10,
   },
   input: {
     flex: 1,
     color: '#FFFFFF',
-    padding: 15,
     fontSize: 16,
   },
-  recipientContainer: {
-    marginBottom: 20,
-  },
-  sectionTitle: {
+  dateText: {
     color: '#FFFFFF',
     fontSize: 16,
-    marginBottom: 10,
   },
-  buttonRow: {
+  buttonContainer: {
     flexDirection: 'row',
-    marginBottom: 15,
+    justifyContent: 'space-between',
   },
-  buttonOption: {
-    backgroundColor: '#333333',
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 25,
-    marginRight: 10,
+  button: {
+    flex: 0.48,
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
   },
-  buttonOptionActive: {
+  activeButton: {
     backgroundColor: '#6B46C1',
   },
+  inactiveButton: {
+    backgroundColor: '#333',
+  },
   buttonText: {
-    color: '#FFFFFF',
+    color: 'white',
     fontWeight: '500',
+    fontSize: 16,
+  },
+  buttonWrapper: {
+    marginTop: 'auto',
+    paddingBottom: 20,
+  },
+  issueButton: {
+    backgroundColor: '#6B46C1',
+    borderRadius: 8,
+    padding: 15,
+    alignItems: 'center',
+  },
+  issueButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   selectFriendsButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#333333',
-    borderRadius: 10,
+    backgroundColor: '#1E1E1E',
+    borderRadius: 8,
     padding: 15,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  selectFriendsIcon: {
+    marginRight: 10,
   },
   selectFriendsText: {
     color: '#FFFFFF',
-  },
-  dateContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#333333',
-    borderRadius: 10,
-    marginBottom: 20,
-    padding: 15,
-  },
-  dateText: {
-    color: '#FFFFFF',
-    marginLeft: 10,
-  },
-  visibilityContainer: {
-    marginBottom: 30,
-  },
-  visibilitySelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#333333',
-    borderRadius: 10,
-    padding: 15,
-  },
-  visibilityText: {
-    color: '#FFFFFF',
+    fontSize: 16,
     flex: 1,
-    marginLeft: 10,
   },
-  issueButton: {
-    backgroundColor: '#6B46C1',
-    borderRadius: 10,
-    padding: 15,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
     alignItems: 'center',
+  },
+  calendarContainer: {
+    width: '90%',
+    backgroundColor: '#242424',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  calendarMonthYear: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  calendarYear: {
+    color: '#999',
+    fontSize: 16,
+    fontWeight: 'normal',
+  },
+  calendarDaysRow: {
+    flexDirection: 'row',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  calendarDayCell: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  calendarDayText: {
+    color: 'white',
+    fontSize: 14,
+  },
+  calendarWeekendText: {
+    color: '#FF6B6B',
+  },
+  calendarDatesContainer: {
+    paddingVertical: 10,
+  },
+  calendarWeekRow: {
+    flexDirection: 'row',
+    paddingVertical: 5,
+  },
+  calendarDateCell: {
+    flex: 1,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 2,
+    borderRadius: 5,
+  },
+  currentMonthCell: {
+    backgroundColor: '#333',
+  },
+  otherMonthCell: {
+    backgroundColor: '#222',
+  },
+  todayCell: {
+    backgroundColor: '#444',
+  },
+  selectedDateCell: {
+    backgroundColor: '#6B46C1',
+  },
+  calendarDateText: {
+    color: 'white',
+    fontSize: 16,
+  },
+  otherMonthText: {
+    color: '#666',
+  },
+  todayText: {
+    fontWeight: 'bold',
+  },
+  selectedDateText: {
+    fontWeight: 'bold',
+  },
+  calendarFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+  },
+  calendarFooterButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 5,
+  },
+  calendarFooterButtonText: {
+    color: '#6B46C1',
+    fontSize: 16,
+  },
+  calendarChooseButton: {
+    backgroundColor: '#6B46C1',
+  },
+  calendarChooseButtonText: {
+    color: 'white',
+    fontSize: 16,
+  },
+  timePickerContainer: {
+    width: '90%',
+    backgroundColor: '#242424',
+    borderRadius: 12,
+    padding: 20,
+    alignItems: 'center',
+  },
+  timeSelector: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 20,
+    position: 'relative',
+  },
+  timeSelectorLabel: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  timeSelectorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 150,
+    position: 'relative',
+    width: '100%',
+  },
+  timePickerScrollView: {
+    height: 150,
+    width: 60,
+  },
+  timePickerScrollContent: {
+    paddingVertical: 25,
+  },
+  timePickerItemWrapper: {
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  timePickerItem: {
+    fontSize: 24,
+    width: '100%',
+    textAlign: 'center',
+  },
+  selectedTimeItem: {
+    color: 'white',
+    fontSize: 26,
+    fontWeight: 'bold',
+  },
+  unselectedTimeItem: {
+    color: '#999',
+  },
+  timePickerSeparator: {
+    color: 'white',
+    fontSize: 30,
+    marginHorizontal: 10,
+  },
+  amPmSelectorContainer: {
+    height: 150,
+    justifyContent: 'center',
+    marginLeft: 20,
+  },
+  amPmButton: {
+    padding: 10,
+    marginVertical: 5,
+    borderRadius: 5,
+    width: 60,
+    alignItems: 'center',
+  },
+  activeAmPmButton: {
+    backgroundColor: '#6B46C1',
+  },
+  amPmButtonText: {
+    color: '#999',
+    fontSize: 20,
+  },
+  activeAmPmButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  timePickerSelectionIndicator: {
+    position: 'absolute',
+    height: 50,
+    left: 70,
+    right: 70,
+    backgroundColor: 'rgba(107, 70, 193, 0.2)',
+    borderRadius: 8,
+    top: 85,
+    zIndex: -1,
+  },
+  timePickerButton: {
+    backgroundColor: '#6B46C1',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 8,
     marginTop: 20,
   },
-  issueButtonText: {
-    color: '#FFFFFF',
+  timePickerButtonText: {
+    color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  selectedFriendsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 10,
+  },
+  selectedFriendChip: {
+    backgroundColor: '#333',
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    margin: 4,
+  },
+  selectedFriendName: {
+    color: 'white',
+    fontSize: 14,
   },
 });
 
