@@ -374,9 +374,9 @@ const HomeScreen = () => {
       setLoading(true);
       console.log("🔍 REJECT BET - Attempting to reject bet with recipientId:", recipientId);
       
-      // Use the admin function
+      // Use the secure function
       const { data, error } = await supabase.rpc(
-        'admin_reject_bet',
+        'secure_reject_bet',
         { 
           p_recipient_id: recipientId
         }
@@ -388,9 +388,9 @@ const HomeScreen = () => {
         return;
       }
       
-      if (data === false) {
-        console.error("🔍 REJECT BET - Function returned false");
-        Alert.alert("Error", "Failed to reject bet. Please try again.");
+      if (!data || !data.success) {
+        console.error("🔍 REJECT BET - Function returned failure:", data?.error || "Unknown error");
+        Alert.alert("Error", data?.error || "Failed to reject bet. Please try again.");
         return;
       }
       
@@ -413,9 +413,9 @@ const HomeScreen = () => {
       setLoading(true);
       console.log("🔍 ACCEPT BET - Attempting to accept bet with recipientId:", recipientId);
       
-      // Use the admin function
+      // Use the secure function
       const { data, error } = await supabase.rpc(
-        'admin_accept_bet',
+        'secure_accept_bet',
         { 
           p_recipient_id: recipientId
         }
@@ -427,9 +427,9 @@ const HomeScreen = () => {
         return;
       }
       
-      if (data === false) {
-        console.error("🔍 ACCEPT BET - Function returned false");
-        Alert.alert("Error", "Failed to accept bet. Please try again.");
+      if (!data || !data.success) {
+        console.error("🔍 ACCEPT BET - Function returned failure:", data?.error || "Unknown error");
+        Alert.alert("Error", data?.error || "Failed to accept bet. Please try again.");
         return;
       }
       

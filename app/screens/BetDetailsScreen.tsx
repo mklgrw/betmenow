@@ -210,9 +210,9 @@ const BetDetailsScreen = () => {
       // Update UI immediately for better UX
       setRecipientStatus('in_progress');
       
-      // Call our admin accept function
+      // Call our secure accept function
       const { data, error } = await supabase.rpc(
-        'admin_accept_bet',
+        'secure_accept_bet',
         { 
           p_recipient_id: recipientId
         }
@@ -228,7 +228,7 @@ const BetDetailsScreen = () => {
         return;
       }
       
-      if (data === true) {
+      if (data && data.success) {
         console.log("✅ Bet accepted successfully!");
         
         // Update local state
@@ -254,8 +254,10 @@ const BetDetailsScreen = () => {
           ]
         );
       } else {
-        console.error("❌ Function returned false");
-        Alert.alert("Error", "Failed to accept bet. Please try again.");
+        console.error("❌ Function returned failure:", data?.error || "Unknown error");
+        Alert.alert("Error", data?.error || "Failed to accept bet. Please try again.");
+        // Revert UI
+        setRecipientStatus('pending');
       }
     } catch (error) {
       console.error("❌ Unexpected error in handleAcceptBet:", error);
@@ -281,9 +283,9 @@ const BetDetailsScreen = () => {
       // Update UI immediately for better UX
       setRecipientStatus('rejected');
       
-      // Call our admin reject function
+      // Call our secure reject function
       const { data, error } = await supabase.rpc(
-        'admin_reject_bet',
+        'secure_reject_bet',
         { 
           p_recipient_id: recipientId
         }
@@ -299,7 +301,7 @@ const BetDetailsScreen = () => {
         return;
       }
       
-      if (data === true) {
+      if (data && data.success) {
         console.log("✅ Bet rejected successfully!");
         
         // Update local state
@@ -324,8 +326,10 @@ const BetDetailsScreen = () => {
           ]
         );
       } else {
-        console.error("❌ Function returned false");
-        Alert.alert("Error", "Failed to reject bet. Please try again.");
+        console.error("❌ Function returned failure:", data?.error || "Unknown error");
+        Alert.alert("Error", data?.error || "Failed to reject bet. Please try again.");
+        // Revert UI
+        setRecipientStatus('pending');
       }
     } catch (error) {
       console.error("❌ Unexpected error in handleRejectBet:", error);
