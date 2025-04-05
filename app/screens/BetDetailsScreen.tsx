@@ -275,32 +275,75 @@ const BetDetailsScreen = () => {
   
   // Handle rejecting a bet
   const handleRejectBet = async () => {
-    if (!recipientId) return;
+    if (!recipientId || !betId) {
+      Alert.alert("Error", "Missing recipient or bet ID");
+      return;
+    }
     
     try {
       setLoading(true);
+      console.log("➡️ Rejecting bet with recipientId:", recipientId, "betId:", betId);
       
-      // Update the bet_recipients record to 'rejected'
-      const { error: recipientError } = await supabase
-        .from('bet_recipients')
-        .update({ status: 'rejected' })
-        .eq('id', recipientId);
-        
-      if (recipientError) {
-        console.error("Error updating bet recipient status:", recipientError);
-        Alert.alert("Error", "Failed to reject bet. Please try again.");
+      // Immediately update UI for better UX
+      setRecipientStatus('rejected');
+      
+      // Call our direct update function
+      console.log("➡️ Calling direct_update_bet_status with params:", {
+        p_recipient_id: recipientId,
+        p_bet_id: betId,
+        p_status: 'rejected'
+      });
+      
+      const { data, error } = await supabase.rpc(
+        'direct_update_bet_status',
+        { 
+          p_recipient_id: recipientId,
+          p_bet_id: betId,
+          p_status: 'rejected'
+        }
+      );
+      
+      console.log("➡️ Direct update result:", data, "Error:", error);
+      
+      if (error) {
+        console.error("❌ Error rejecting bet:", error);
+        Alert.alert("Error", "Failed to reject bet: " + error.message);
+        // Revert UI
+        setRecipientStatus('pending');
         return;
       }
       
-      // We don't update the main bet status since other recipients might still accept
-      
-      Alert.alert("Success", "Bet rejected successfully!");
-      
-      // Refresh the bet details
-      fetchBetDetails();
+      if (data === true) {
+        console.log("✅ Bet rejected successfully!");
+        
+        // Update local state
+        setRecipients(prevRecipients => {
+          return prevRecipients.map(r => 
+            r.id === recipientId ? {...r, status: 'rejected'} : r
+          );
+        });
+        
+        // Show success and navigate back to home screen with refresh parameter
+        Alert.alert(
+          "Success", 
+          "Bet rejected successfully!",
+          [
+            { 
+              text: "OK", 
+              onPress: () => {
+                // Navigate back to home with refresh parameter
+                navigation.navigate('Home', { refresh: Date.now() });
+              }
+            }
+          ]
+        );
+      } else {
+        console.error("❌ Function returned false");
+        Alert.alert("Error", "Failed to reject bet. Please try again.");
+      }
     } catch (error) {
-      console.error("Unexpected error in handleRejectBet:", error);
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
+      console.error("❌ Unexpected error:", error);
+      Alert.alert("Error", "An unexpected error occurred");
     } finally {
       setLoading(false);
     }
@@ -334,6 +377,11 @@ const BetDetailsScreen = () => {
   
   // Confirm rejecting a bet
   const confirmRejectBet = () => {
+    if (!recipientId || !betId) {
+      Alert.alert("Error", "Missing recipient or bet ID");
+      return;
+    }
+    
     Alert.alert(
       "Reject Bet",
       "Are you sure you want to reject this bet?",
@@ -344,7 +392,10 @@ const BetDetailsScreen = () => {
         },
         { 
           text: "Reject", 
-          onPress: handleRejectBet,
+          onPress: () => {
+            console.log("Confirmation dialog 'Reject' pressed");
+            handleRejectBet();
+          },
           style: "destructive"
         }
       ]
@@ -788,6 +839,26 @@ const BetDetailsScreen = () => {
           >
             <Text style={{ color: 'white', fontWeight: 'bold' }}>
               DIRECT ACCEPT (No Dialog)
+            </Text>
+          </TouchableOpacity>
+        )}
+        
+        {/* Direct reject button for testing - no confirmation dialog */}
+        {__DEV__ && canAcceptRejectBet && (
+          <TouchableOpacity
+            style={{
+              backgroundColor: '#800000', // Maroon
+              flexDirection: 'row',
+              justifyContent: 'center',
+              alignItems: 'center',
+              padding: 12,
+              borderRadius: 8,
+              marginTop: 10
+            }}
+            onPress={handleRejectBet}
+          >
+            <Text style={{ color: 'white', fontWeight: 'bold' }}>
+              DIRECT REJECT (No Dialog)
             </Text>
           </TouchableOpacity>
         )}
