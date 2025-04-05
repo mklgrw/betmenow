@@ -1,5 +1,4 @@
--- Super direct function to update a bet and recipient status
--- This avoids all relationship issues
+-- Direct function to update bet recipient status and handle appropriate bet status changes
 CREATE OR REPLACE FUNCTION direct_update_bet_status(
   p_recipient_id UUID,
   p_bet_id UUID,
@@ -12,28 +11,33 @@ AS $$
 DECLARE
   v_success BOOLEAN := FALSE;
 BEGIN
-  -- Validate recipient exists and belongs to this bet
-  IF NOT EXISTS (
-    SELECT 1 FROM bet_recipients 
-    WHERE id = p_recipient_id AND bet_id = p_bet_id
-  ) THEN
-    RETURN FALSE;
+  -- Use the superuser approach that worked
+  IF p_status = 'rejected' THEN
+    -- Use the method that works for rejection
+    EXECUTE format('UPDATE bet_recipients SET status = ''rejected''::%s WHERE id = %L', 
+                   'text',  -- Force text type 
+                   p_recipient_id);
+  ELSE
+    -- Validate recipient exists and belongs to this bet
+    IF NOT EXISTS (
+      SELECT 1 FROM bet_recipients 
+      WHERE id = p_recipient_id AND bet_id = p_bet_id
+    ) THEN
+      RETURN FALSE;
+    END IF;
+    
+    -- Update recipient status
+    UPDATE bet_recipients 
+    SET status = p_status
+    WHERE id = p_recipient_id;
+    
+    -- If we're setting to 'in_progress', update main bet status too
+    IF p_status = 'in_progress' THEN
+      UPDATE bets
+      SET status = 'in_progress' 
+      WHERE id = p_bet_id;
+    END IF;
   END IF;
-  
-  -- Update recipient status
-  UPDATE bet_recipients 
-  SET status = p_status
-  WHERE id = p_recipient_id;
-  
-  -- If we're setting to 'in_progress', update main bet status too
-  IF p_status = 'in_progress' THEN
-    UPDATE bets
-    SET status = 'in_progress' 
-    WHERE id = p_bet_id;
-  END IF;
-  
-  -- If we're setting to 'rejected', we DON'T change main bet status
-  -- since other recipients may still want to accept
   
   RETURN TRUE;
 EXCEPTION WHEN OTHERS THEN
@@ -42,35 +46,26 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $$;
 
--- Specific function for handling rejections
+-- Specific function for handling rejections - uses the superuser approach
 CREATE OR REPLACE FUNCTION reject_bet_recipient(
   p_recipient_id UUID
-) RETURNS BOOLEAN
+)
+RETURNS BOOLEAN
 LANGUAGE plpgsql
-SECURITY DEFINER -- Run with admin privileges
+SECURITY DEFINER
 AS $$
 DECLARE
-  v_bet_id UUID;
+  v_result BOOLEAN;
 BEGIN
-  -- First, get the bet_id from the recipient
-  SELECT bet_id INTO v_bet_id 
-  FROM bet_recipients 
-  WHERE id = p_recipient_id;
-  
-  IF v_bet_id IS NULL THEN
+  -- Use the successful superuser approach
+  BEGIN
+    EXECUTE format('UPDATE bet_recipients SET status = ''rejected''::%s WHERE id = %L', 
+                   'text',  -- Force text type 
+                   p_recipient_id);
+    RETURN TRUE;
+  EXCEPTION WHEN OTHERS THEN
     RETURN FALSE;
-  END IF;
-  
-  -- Simply update the recipient status to 'rejected'
-  -- Do NOT touch the main bet status
-  UPDATE bet_recipients 
-  SET status = 'rejected'
-  WHERE id = p_recipient_id;
-  
-  RETURN TRUE;
-EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE 'Error rejecting bet: %', SQLERRM;
-  RETURN FALSE;
+  END;
 END;
 $$;
 
