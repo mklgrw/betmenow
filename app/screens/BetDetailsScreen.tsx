@@ -287,23 +287,17 @@ const BetDetailsScreen = () => {
       // Immediately update UI for better UX
       setRecipientStatus('rejected');
       
-      // Call our direct update function
-      console.log("➡️ Calling direct_update_bet_status with params:", {
-        p_recipient_id: recipientId,
-        p_bet_id: betId,
-        p_status: 'rejected'
-      });
+      // Call our specialized rejection function
+      console.log("➡️ Calling reject_bet_recipient with recipientId:", recipientId);
       
       const { data, error } = await supabase.rpc(
-        'direct_update_bet_status',
+        'reject_bet_recipient',
         { 
-          p_recipient_id: recipientId,
-          p_bet_id: betId,
-          p_status: 'rejected'
+          p_recipient_id: recipientId
         }
       );
       
-      console.log("➡️ Direct update result:", data, "Error:", error);
+      console.log("➡️ Rejection result:", data, "Error:", error);
       
       if (error) {
         console.error("❌ Error rejecting bet:", error);

@@ -413,21 +413,29 @@ const HomeScreen = () => {
   const handleRejectBet = async (recipientId: string, betId: string) => {
     try {
       setLoading(true);
+      console.log("🔍 REJECT BET - Attempting to reject bet with recipientId:", recipientId);
       
-      // Update the bet_recipients record to 'rejected'
-      const { error: recipientError } = await supabase
-        .from('bet_recipients')
-        .update({ status: 'rejected' })
-        .eq('id', recipientId);
-        
-      if (recipientError) {
-        console.error("🔍 REJECT BET - Error updating bet recipient status:", recipientError);
+      // Use our specialized rejection function instead of direct update
+      const { data, error } = await supabase.rpc(
+        'reject_bet_recipient',
+        { 
+          p_recipient_id: recipientId
+        }
+      );
+      
+      if (error) {
+        console.error("🔍 REJECT BET - Error updating bet recipient status:", error);
         Alert.alert("Error", "Failed to reject bet. Please try again.");
         return;
       }
       
-      // We don't update the main bet status since other recipients might still accept
+      if (data === false) {
+        console.error("🔍 REJECT BET - Function returned false");
+        Alert.alert("Error", "Failed to reject bet. Please try again.");
+        return;
+      }
       
+      console.log("🔍 REJECT BET - Successfully rejected");
       Alert.alert("Success", "Bet rejected successfully!");
       
       // Refresh the bets list
