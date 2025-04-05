@@ -695,6 +695,47 @@ const BetDetailsScreen = () => {
     }
   };
 
+  // Add this alternative rejection function that doesn't use RPC
+  const alternativeRejectBet = async () => {
+    if (!recipientId) {
+      Alert.alert("Error", "No recipient ID available");
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      console.log("ALTERNATIVE: Direct rejection attempt with recipientId:", recipientId);
+      
+      // Try direct update to the table without using the function
+      const { data, error } = await supabase
+        .from('bet_recipients')
+        .update({ status: 'rejected' })
+        .eq('id', recipientId);
+      
+      console.log("ALTERNATIVE: Direct table update result:", { data, error });
+      
+      if (error) {
+        console.error("ALTERNATIVE: Direct update failed:", error);
+        Alert.alert("Alternative Update Failed", "Could not update status: " + error.message);
+        return;
+      }
+      
+      console.log("ALTERNATIVE: Direct update succeeded!");
+      Alert.alert("Success", "Bet rejected successfully!");
+      
+      // Force UI update
+      setRecipientStatus('rejected');
+      
+      // Force reload the entire component by changing a key prop
+      navigation.setParams({ refresh: Date.now() });
+    } catch (error) {
+      console.error("ALTERNATIVE: Unexpected error in alternativeRejectBet:", error);
+      Alert.alert("Error", "An unexpected error occurred during alternative update");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -760,6 +801,113 @@ const BetDetailsScreen = () => {
           >
             <Text style={{color: 'white', fontWeight: 'bold'}}>FORCE EMERGENCY ACCEPT (Debug Only)</Text>
           </TouchableOpacity>
+
+          {/* Fix SQL functions button */}
+          {__DEV__ && (
+            <TouchableOpacity 
+              style={{backgroundColor: '#00BFFF', padding: 10, borderRadius: 8, marginTop: 10, alignItems: 'center'}}
+              onPress={async () => {
+                try {
+                  // First drop the functions
+                  await supabase.rpc('execute_sql', { 
+                    sql: "DROP FUNCTION IF EXISTS public.direct_update_bet_status(UUID, UUID, TEXT); DROP FUNCTION IF EXISTS public.reject_bet_recipient(UUID);" 
+                  });
+                  
+                  // Then recreate them correctly
+                  const sql = `
+                    -- Fix function for updating bet status
+                    CREATE OR REPLACE FUNCTION direct_update_bet_status(
+                      p_recipient_id UUID,
+                      p_bet_id UUID,
+                      p_status TEXT DEFAULT 'in_progress'
+                    ) RETURNS BOOLEAN
+                    LANGUAGE plpgsql
+                    SECURITY DEFINER
+                    AS $$
+                    DECLARE
+                      v_success BOOLEAN := FALSE;
+                    BEGIN
+                      -- Validate recipient exists and belongs to this bet
+                      IF NOT EXISTS (
+                        SELECT 1 FROM bet_recipients 
+                        WHERE id = p_recipient_id AND bet_id = p_bet_id
+                      ) THEN
+                        RETURN FALSE;
+                      END IF;
+                      
+                      -- Update recipient status
+                      UPDATE bet_recipients 
+                      SET status = p_status
+                      WHERE id = p_recipient_id;
+                      
+                      -- If we're setting to 'in_progress', update main bet status too
+                      IF p_status = 'in_progress' THEN
+                        UPDATE bets
+                        SET status = 'in_progress' 
+                        WHERE id = p_bet_id;
+                      END IF;
+                      
+                      RETURN TRUE;
+                    EXCEPTION WHEN OTHERS THEN
+                      RAISE NOTICE 'Error updating bet and recipient: %', SQLERRM;
+                      RETURN FALSE;
+                    END;
+                    $$;
+
+                    -- Fix function for handling rejections
+                    CREATE OR REPLACE FUNCTION reject_bet_recipient(
+                      p_recipient_id UUID
+                    ) RETURNS BOOLEAN
+                    LANGUAGE plpgsql
+                    SECURITY DEFINER
+                    AS $$
+                    DECLARE
+                      v_bet_id UUID;
+                    BEGIN
+                      -- First, get the bet_id from the recipient
+                      SELECT bet_id INTO v_bet_id 
+                      FROM bet_recipients 
+                      WHERE id = p_recipient_id;
+                      
+                      IF v_bet_id IS NULL THEN
+                        RETURN FALSE;
+                      END IF;
+                      
+                      -- Simply update the recipient status to 'rejected'
+                      UPDATE bet_recipients 
+                      SET status = 'rejected'
+                      WHERE id = p_recipient_id;
+                      
+                      RETURN TRUE;
+                    EXCEPTION WHEN OTHERS THEN
+                      RAISE NOTICE 'Error rejecting bet: %', SQLERRM;
+                      RETURN FALSE;
+                    END;
+                    $$;
+
+                    -- Grant execute permissions
+                    GRANT EXECUTE ON FUNCTION direct_update_bet_status(UUID, UUID, TEXT) TO authenticated, anon;
+                    GRANT EXECUTE ON FUNCTION reject_bet_recipient(UUID) TO authenticated, anon;
+                  `;
+                  
+                  const { data, error } = await supabase.rpc('execute_sql', { sql });
+                  
+                  if (error) {
+                    console.error("Error fixing SQL functions:", error);
+                    Alert.alert("Error", "Failed to fix SQL functions: " + error.message);
+                  } else {
+                    console.log("SQL functions fixed successfully:", data);
+                    Alert.alert("Success", "SQL functions fixed successfully!");
+                  }
+                } catch (error) {
+                  console.error("Unexpected error fixing SQL:", error);
+                  Alert.alert("Error", "An unexpected error occurred");
+                }
+              }}
+            >
+              <Text style={{color: 'white', fontWeight: 'bold'}}>FIX SQL FUNCTIONS</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={styles.betCard}>
@@ -853,6 +1001,26 @@ const BetDetailsScreen = () => {
           >
             <Text style={{ color: 'white', fontWeight: 'bold' }}>
               DIRECT REJECT (No Dialog)
+            </Text>
+          </TouchableOpacity>
+        )}
+        
+        {/* Alternative rejection button - use when normal method fails */}
+        {__DEV__ && canAcceptRejectBet && (
+          <TouchableOpacity
+            style={{
+              backgroundColor: '#9932CC', // Dark Orchid
+              flexDirection: 'row',
+              justifyContent: 'center',
+              alignItems: 'center',
+              padding: 12,
+              borderRadius: 8,
+              marginTop: 10
+            }}
+            onPress={alternativeRejectBet}
+          >
+            <Text style={{ color: 'white', fontWeight: 'bold' }}>
+              ALTERNATIVE REJECT (Bypass Function)
             </Text>
           </TouchableOpacity>
         )}

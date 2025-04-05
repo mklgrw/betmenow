@@ -448,7 +448,60 @@ const HomeScreen = () => {
     }
   };
   
-  // Confirm accepting a bet
+  // Alternative handler for rejecting a bet that doesn't rely on SQL functions
+  const alternativeRejectBet = async (recipientId: string) => {
+    try {
+      setLoading(true);
+      console.log("🔍 ALTERNATIVE REJECT - Attempting direct table update for recipientId:", recipientId);
+      
+      // Try direct update to the table without using the function
+      const { data, error } = await supabase
+        .from('bet_recipients')
+        .update({ status: 'rejected' })
+        .eq('id', recipientId);
+      
+      if (error) {
+        console.error("🔍 ALTERNATIVE REJECT - Error updating bet recipient status:", error);
+        Alert.alert("Error", "Failed to reject bet. Please try again.");
+        return;
+      }
+      
+      Alert.alert("Success", "Bet rejected successfully!");
+      
+      // Refresh the bets list
+      fetchBets();
+    } catch (error) {
+      console.error("🔍 ALTERNATIVE REJECT - Unexpected error:", error);
+      Alert.alert("Error", "An unexpected error occurred. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Updated confirm rejecting a bet to use alternative method
+  const confirmRejectBet = (recipientId: string, betId: string) => {
+    Alert.alert(
+      "Reject Bet",
+      "Are you sure you want to reject this bet?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        { 
+          text: "Try Direct Reject", 
+          onPress: () => alternativeRejectBet(recipientId),
+          style: "destructive"
+        },
+        { 
+          text: "Try Function Reject", 
+          onPress: () => handleRejectBet(recipientId, betId)
+        }
+      ]
+    );
+  };
+
+  // Add back the confirmAcceptBet function
   const confirmAcceptBet = (recipientId: string, betId: string) => {
     Alert.alert(
       "Accept Bet",
@@ -461,25 +514,6 @@ const HomeScreen = () => {
         { 
           text: "Accept", 
           onPress: () => handleAcceptBet(recipientId, betId)
-        }
-      ]
-    );
-  };
-  
-  // Confirm rejecting a bet
-  const confirmRejectBet = (recipientId: string, betId: string) => {
-    Alert.alert(
-      "Reject Bet",
-      "Are you sure you want to reject this bet?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
-        { 
-          text: "Reject", 
-          onPress: () => handleRejectBet(recipientId, betId),
-          style: "destructive"
         }
       ]
     );
