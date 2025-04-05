@@ -368,54 +368,15 @@ const HomeScreen = () => {
     );
   };
 
-  // Handle accepting a bet
-  const handleAcceptBet = async (recipientId: string) => {
-    try {
-      setLoading(true);
-      console.log("🔍 ACCEPT BET - Attempting to accept bet with recipientId:", recipientId);
-      
-      // Use the properly implemented function
-      const { data, error } = await supabase.rpc(
-        'accept_bet',
-        { 
-          p_recipient_id: recipientId
-        }
-      );
-      
-      if (error) {
-        console.error("🔍 ACCEPT BET - Error accepting bet:", error);
-        Alert.alert("Error", "Failed to accept bet. Please try again.");
-        return;
-      }
-      
-      if (data === false) {
-        console.error("🔍 ACCEPT BET - Function returned false");
-        Alert.alert("Error", "Failed to accept bet. Please try again.");
-        return;
-      }
-      
-      console.log("🔍 ACCEPT BET - Successfully accepted");
-      Alert.alert("Success", "Bet accepted successfully!");
-      
-      // Refresh the bets list
-      fetchBets();
-    } catch (error) {
-      console.error("🔍 ACCEPT BET - Unexpected error in handleAcceptBet:", error);
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-  
   // Handle rejecting a bet
   const handleRejectBet = async (recipientId: string) => {
     try {
       setLoading(true);
       console.log("🔍 REJECT BET - Attempting to reject bet with recipientId:", recipientId);
       
-      // Use the properly implemented function
+      // Use the simplified function
       const { data, error } = await supabase.rpc(
-        'reject_bet',
+        'reject_bet_simple',
         { 
           p_recipient_id: recipientId
         }
@@ -440,6 +401,45 @@ const HomeScreen = () => {
       fetchBets();
     } catch (error) {
       console.error("🔍 REJECT BET - Unexpected error in handleRejectBet:", error);
+      Alert.alert("Error", "An unexpected error occurred. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Handle accepting a bet
+  const handleAcceptBet = async (recipientId: string) => {
+    try {
+      setLoading(true);
+      console.log("🔍 ACCEPT BET - Attempting to accept bet with recipientId:", recipientId);
+      
+      // Use the simplified function
+      const { data, error } = await supabase.rpc(
+        'accept_bet_simple',
+        { 
+          p_recipient_id: recipientId
+        }
+      );
+      
+      if (error) {
+        console.error("🔍 ACCEPT BET - Error accepting bet:", error);
+        Alert.alert("Error", "Failed to accept bet. Please try again.");
+        return;
+      }
+      
+      if (data === false) {
+        console.error("🔍 ACCEPT BET - Function returned false");
+        Alert.alert("Error", "Failed to accept bet. Please try again.");
+        return;
+      }
+      
+      console.log("🔍 ACCEPT BET - Successfully accepted");
+      Alert.alert("Success", "Bet accepted successfully!");
+      
+      // Refresh the bets list
+      fetchBets();
+    } catch (error) {
+      console.error("🔍 ACCEPT BET - Unexpected error in handleAcceptBet:", error);
       Alert.alert("Error", "An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);
