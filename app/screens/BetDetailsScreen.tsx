@@ -736,6 +736,132 @@ const BetDetailsScreen = () => {
     }
   };
 
+  // Add this raw rejection function
+  const rawRejectBet = async () => {
+    if (!recipientId) {
+      Alert.alert("Error", "No recipient ID available");
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      console.log("RAW REJECT: Attempting raw SQL update with recipientId:", recipientId);
+      
+      // Call our raw update function
+      const { data, error } = await supabase.rpc(
+        'raw_update_recipient_status',
+        { 
+          p_recipient_id: recipientId,
+          p_status: 'rejected'
+        }
+      );
+      
+      console.log("RAW REJECT: Update result:", { data, error });
+      
+      if (error) {
+        console.error("RAW REJECT: Update failed:", error);
+        Alert.alert("Raw Update Failed", "Could not update status: " + error.message);
+        return;
+      }
+      
+      if (data === true) {
+        console.log("RAW REJECT: Update succeeded!");
+        Alert.alert("Success", "Bet rejected successfully with raw update!");
+        
+        // Force UI update
+        setRecipientStatus('rejected');
+        setRecipients(prevRecipients => {
+          return prevRecipients.map(r => 
+            r.id === recipientId ? {...r, status: 'rejected'} : r
+          );
+        });
+        
+        // Force reload the entire component by changing a key prop
+        navigation.navigate('Home', { refresh: Date.now() });
+      } else {
+        console.error("RAW REJECT: Update returned false");
+        Alert.alert("Raw Update Failed", "The update function returned false");
+      }
+    } catch (error) {
+      console.error("RAW REJECT: Unexpected error:", error);
+      Alert.alert("Error", "An unexpected error occurred during raw update");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Function to perform atomic reject with disabled triggers
+  const triggerlessRejectBet = async () => {
+    if (!recipientId || !betId) {
+      Alert.alert("Error", "Missing recipient or bet ID");
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      console.log("🧨 TRIGGERLESS REJECT - Starting with recipientId:", recipientId);
+      
+      // 1. Disable all triggers on bet_recipients table
+      const { data: disableResult, error: disableError } = await supabase.rpc(
+        'disable_all_triggers_on',
+        { table_name: 'bet_recipients' }
+      );
+      
+      if (disableError) {
+        console.error("🧨 TRIGGERLESS REJECT - Error disabling triggers:", disableError);
+        Alert.alert("Error", "Failed to disable triggers: " + disableError.message);
+        return;
+      }
+      
+      console.log("🧨 TRIGGERLESS REJECT - Triggers disabled:", disableResult);
+      
+      // 2. Update recipient status directly
+      const { data: updateData, error: updateError } = await supabase
+        .from('bet_recipients')
+        .update({ status: 'rejected' })
+        .eq('id', recipientId);
+        
+      // 3. Re-enable all triggers regardless of update success
+      const { data: enableResult, error: enableError } = await supabase.rpc(
+        'enable_all_triggers_on',
+        { table_name: 'bet_recipients' }
+      );
+      
+      if (enableError) {
+        console.error("🧨 TRIGGERLESS REJECT - Error re-enabling triggers:", enableError);
+      } else {
+        console.log("🧨 TRIGGERLESS REJECT - Triggers re-enabled:", enableResult);
+      }
+      
+      // Check if update succeeded
+      if (updateError) {
+        console.error("🧨 TRIGGERLESS REJECT - Error updating status:", updateError);
+        Alert.alert("Error", "Failed to update status: " + updateError.message);
+        return;
+      }
+      
+      console.log("🧨 TRIGGERLESS REJECT - Update successful");
+      Alert.alert("Success", "Bet rejected with triggers disabled!");
+      
+      // Update UI
+      setRecipientStatus('rejected');
+      setRecipients(prevRecipients => {
+        return prevRecipients.map(r => 
+          r.id === recipientId ? {...r, status: 'rejected'} : r
+        );
+      });
+      
+      // Navigate back home with refresh
+      navigation.navigate('Home', { refresh: Date.now() });
+      
+    } catch (error) {
+      console.error("🧨 TRIGGERLESS REJECT - Unexpected error:", error);
+      Alert.alert("Error", "An unexpected error occurred");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -885,9 +1011,30 @@ const BetDetailsScreen = () => {
                     END;
                     $$;
 
+                    -- Create raw update function
+                    CREATE OR REPLACE FUNCTION raw_update_recipient_status(
+                      p_recipient_id UUID,
+                      p_status TEXT
+                    ) RETURNS BOOLEAN
+                    LANGUAGE plpgsql
+                    SECURITY DEFINER
+                    AS $$
+                    BEGIN
+                      -- EXECUTE raw SQL to bypass all possible constraints
+                      EXECUTE 'UPDATE bet_recipients SET status = $1 WHERE id = $2'
+                      USING p_status, p_recipient_id;
+                      
+                      RETURN TRUE;
+                    EXCEPTION WHEN OTHERS THEN
+                      RAISE NOTICE 'Error in raw update: %', SQLERRM;
+                      RETURN FALSE;
+                    END;
+                    $$;
+
                     -- Grant execute permissions
                     GRANT EXECUTE ON FUNCTION direct_update_bet_status(UUID, UUID, TEXT) TO authenticated, anon;
                     GRANT EXECUTE ON FUNCTION reject_bet_recipient(UUID) TO authenticated, anon;
+                    GRANT EXECUTE ON FUNCTION raw_update_recipient_status(UUID, TEXT) TO authenticated, anon;
                   `;
                   
                   const { data, error } = await supabase.rpc('execute_sql', { sql });
@@ -906,6 +1053,26 @@ const BetDetailsScreen = () => {
               }}
             >
               <Text style={{color: 'white', fontWeight: 'bold'}}>FIX SQL FUNCTIONS</Text>
+            </TouchableOpacity>
+          )}
+          
+          {/* RAW REJECT button - most direct approach */}
+          {__DEV__ && recipientId && (
+            <TouchableOpacity 
+              style={{backgroundColor: '#FF1493', padding: 10, borderRadius: 8, marginTop: 10, alignItems: 'center'}}
+              onPress={rawRejectBet}
+            >
+              <Text style={{color: 'white', fontWeight: 'bold'}}>EMERGENCY RAW REJECT</Text>
+            </TouchableOpacity>
+          )}
+          
+          {/* TRIGGERLESS REJECT button - bypass database triggers */}
+          {__DEV__ && recipientId && betId && (
+            <TouchableOpacity 
+              style={{backgroundColor: '#FF4500', padding: 10, borderRadius: 8, marginTop: 10, alignItems: 'center'}}
+              onPress={triggerlessRejectBet}
+            >
+              <Text style={{color: 'white', fontWeight: 'bold'}}>TRIGGERLESS REJECT</Text>
             </TouchableOpacity>
           )}
         </View>

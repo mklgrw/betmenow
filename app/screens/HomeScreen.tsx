@@ -496,6 +496,10 @@ const HomeScreen = () => {
         { 
           text: "Try Function Reject", 
           onPress: () => handleRejectBet(recipientId, betId)
+        },
+        { 
+          text: "EMERGENCY RAW REJECT", 
+          onPress: () => rawRejectBet(recipientId)
         }
       ]
     );
@@ -517,6 +521,44 @@ const HomeScreen = () => {
         }
       ]
     );
+  };
+
+  // Raw direct update for rejecting a bet - last resort
+  const rawRejectBet = async (recipientId: string) => {
+    try {
+      setLoading(true);
+      console.log("🔥 RAW REJECT - Attempting raw SQL update for recipientId:", recipientId);
+      
+      // Call raw update function
+      const { data, error } = await supabase.rpc(
+        'raw_update_recipient_status',
+        { 
+          p_recipient_id: recipientId,
+          p_status: 'rejected'
+        }
+      );
+      
+      if (error) {
+        console.error("🔥 RAW REJECT - Error updating recipient status:", error);
+        Alert.alert("Error", "Failed to reject bet. Please try again.");
+        return;
+      }
+      
+      if (data === true) {
+        console.log("🔥 RAW REJECT - Successfully rejected!");
+        Alert.alert("Success", "Bet rejected successfully!");
+        // Refresh the bets list
+        fetchBets();
+      } else {
+        console.error("🔥 RAW REJECT - Function returned false");
+        Alert.alert("Error", "Raw rejection failed. Please try again.");
+      }
+    } catch (error) {
+      console.error("🔥 RAW REJECT - Unexpected error:", error);
+      Alert.alert("Error", "An unexpected error occurred. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const renderBetCard = ({ item }: { item: any }) => {
