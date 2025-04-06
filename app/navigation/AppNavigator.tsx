@@ -7,6 +7,7 @@ import MainTabNavigator from './MainTabNavigator';
 import SelectFriendsScreen from '../screens/SelectFriendsScreen';
 import BetDetailsScreen from '../screens/BetDetailsScreen';
 import EditBetScreen from '../screens/EditBetScreen';
+import EditProfileScreen from '../screens/EditProfileScreen';
 
 const Stack = createStackNavigator();
 
@@ -25,6 +26,7 @@ const MainStack = () => (
     <Stack.Screen name="SelectFriends" component={SelectFriendsScreen} />
     <Stack.Screen name="BetDetails" component={BetDetailsScreen} />
     <Stack.Screen name="EditBet" component={EditBetScreen} />
+    <Stack.Screen name="EditProfile" component={EditProfileScreen} />
   </Stack.Navigator>
 );
 

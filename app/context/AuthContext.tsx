@@ -17,6 +17,7 @@ type AuthContextType = {
   signIn: (email: string, password: string) => Promise<boolean>;
   signUp: (email: string, password: string, username: string) => Promise<{ error: any, user: User | null }>;
   signOut: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 };
 
 const initialState: AuthContextType = {
@@ -26,6 +27,7 @@ const initialState: AuthContextType = {
   signIn: async () => false,
   signUp: async () => ({ error: null, user: null }),
   signOut: async () => {},
+  refreshUser: async () => {},
 };
 
 const AuthContext = createContext<AuthContextType>(initialState);
@@ -177,6 +179,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const refreshUser = async () => {
+    try {
+      const { data, error } = await supabase.auth.refreshSession();
+      
+      if (error) {
+        console.error('Error refreshing session:', error);
+        return;
+      }
+      
+      const { session } = data;
+      
+      setState(prev => ({
+        ...prev,
+        session,
+        user: session?.user || null,
+      }));
+      
+      console.log('User data refreshed');
+    } catch (err) {
+      console.error('Error in refreshUser:', err);
+    }
+  };
+
   // Initialize required database tables and triggers
   const initializeTables = async () => {
     try {
@@ -214,6 +239,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       signIn,
       signUp,
       signOut,
+      refreshUser,
     }}>
       {children}
     </AuthContext.Provider>

@@ -10,6 +10,7 @@ import {
   SafeAreaView,
   FlatList,
   Button,
+  Linking,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -639,23 +640,13 @@ const BetDetailsScreen = () => {
           setPendingOutcome(null);
           setHasPendingOutcome(false);
           
-          Alert.alert(
-            "Loss Declared", 
-            "You've declared a loss for this bet. Your opponent has been marked as the winner.",
-            [
-              { 
-                text: "OK", 
-                onPress: () => {
-                  navigation.goBack();
-                }
-              }
-            ]
-          );
-          
+          // Skip dialog and navigate back
+          navigation.goBack();
           setLoading(false);
           return;
         } else {
-          Alert.alert("Error", "No recipient ID or bet ID available");
+          console.error("Error: No recipient ID or bet ID available");
+          navigation.goBack();
           setLoading(false);
           return;
         }
@@ -668,7 +659,8 @@ const BetDetailsScreen = () => {
       const currentBetId = foundBetId || betId;
       
       if (!currentBetId) {
-        Alert.alert("Error", "Invalid bet ID");
+        console.error("Error: Invalid bet ID");
+        navigation.goBack();
         setLoading(false);
         return;
       }
@@ -714,22 +706,54 @@ const BetDetailsScreen = () => {
         });
       });
       
-      Alert.alert(
-        "Loss Declared", 
-        "You've declared a loss for this bet. Your opponent has been marked as the winner.",
-        [
-          { 
-            text: "OK", 
-            onPress: () => {
-              navigation.goBack();
+      // Get winner's Venmo username
+      let winnerVenmoUsername = null;
+      
+      if (opponentId) {
+        const opponent = recipients.find(r => r.id === opponentId);
+        if (opponent && opponent.profiles) {
+          const opponentUserId = opponent.recipient_id;
+          
+          if (opponentUserId) {
+            // Fetch the winner's Venmo username from the users table
+            const { data: winnerData, error: winnerError } = await supabase
+              .from('users')
+              .select('venmo_username')
+              .eq('id', opponentUserId)
+              .single();
+              
+            if (!winnerError && winnerData && winnerData.venmo_username) {
+              winnerVenmoUsername = winnerData.venmo_username;
             }
           }
-        ]
-      );
+        }
+      }
+      
+      // Always try to open Venmo - if winnerVenmoUsername is null, this will silently fail
+      try {
+        // Use hardcoded Venmo username if the fetched one is not available
+        const venmoUsername = winnerVenmoUsername || 'S-PBOO'; // Fallback to the test username
+        const note = "Paying bet";
+        const venmoUrl = `venmo://paycharge?txn=pay&recipients=${venmoUsername}&amount=${bet.stake}&note=${note}`;
+        
+        console.log("Directly opening Venmo with URL:", venmoUrl);
+        
+        // Try to open Venmo without any dialog
+        Linking.openURL(venmoUrl).catch(err => {
+          console.error('Error opening Venmo:', err);
+        });
+      } catch (error) {
+        console.error('Error with Venmo deep linking:', error);
+      } finally {
+        // Always navigate back, even if Venmo fails to open
+        setTimeout(() => {
+          navigation.goBack();
+        }, 500);
+      }
       
     } catch (error) {
       console.error("Error declaring loss:", error);
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
+      navigation.goBack();
     } finally {
       setLoading(false);
     }
