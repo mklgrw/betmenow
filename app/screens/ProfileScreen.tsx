@@ -1,14 +1,46 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+// @ts-ignore - There's an issue with moduleResolution for @react-navigation/native
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { supabase } from '../services/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ProfileScreen = () => {
   const navigation = useNavigation();
   const { user, signOut } = useAuth();
   const theme = useTheme();
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      fetchUserProfile();
+    }
+  }, [user]);
+
+  const fetchUserProfile = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('display_name, venmo_username, avatar_url')
+        .eq('id', user?.id)
+        .single();
+
+      if (error) {
+        console.error('Error fetching profile:', error);
+        return;
+      }
+
+      // Set avatar URL from database
+      if (data && data.avatar_url) {
+        setAvatarUrl(data.avatar_url);
+      }
+    } catch (error) {
+      console.error('Error in fetchUserProfile:', error);
+    }
+  };
 
   const handleSignOut = async () => {
     await signOut();
@@ -25,11 +57,15 @@ const ProfileScreen = () => {
         </View>
 
         <View style={styles.profileInfo}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {((user?.user_metadata?.display_name || user?.email || 'U').charAt(0).toUpperCase())}
-            </Text>
-          </View>
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+          ) : (
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>
+                {((user?.user_metadata?.display_name || user?.email || 'U').charAt(0).toUpperCase())}
+              </Text>
+            </View>
+          )}
           <Text style={styles.username}>
             {user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Username'}
           </Text>

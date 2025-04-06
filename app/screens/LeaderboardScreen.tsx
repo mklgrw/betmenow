@@ -17,6 +17,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // User type for leaderboard entries
 type LeaderboardUser = {
@@ -31,6 +32,7 @@ type LeaderboardUser = {
   win_percentage: number;
   net_winnings: number;
   score: number; // Calculated ranking score
+  avatarUrl?: string; // Optional avatar URL from AsyncStorage
 };
 
 // Enum for time filter options
@@ -55,11 +57,15 @@ const LeaderboardScreen = () => {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>(TimeFilter.ALL_TIME);
   const [sortOption, setSortOption] = useState<SortOption>(SortOption.SCORE);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   const navigation = useNavigation();
   const theme = useTheme();
   const { user } = useAuth();
 
+  // Add state for user avatars
+  const [userAvatars, setUserAvatars] = useState<Record<string, string>>({});
+  
   // Fetch leaderboard data
   useEffect(() => {
     fetchLeaderboardData();
@@ -88,6 +94,28 @@ const LeaderboardScreen = () => {
         setIsLoading(false);
         return;
       }
+
+      // Load avatar URLs from AsyncStorage for all users
+      const avatarPromises = userData.map(async (user) => {
+        try {
+          const avatarUrl = await AsyncStorage.getItem(`user_avatar_${user.id}`);
+          return { userId: user.id, avatarUrl };
+        } catch (error) {
+          console.error(`Error loading avatar for user ${user.id}:`, error);
+          return { userId: user.id, avatarUrl: null };
+        }
+      });
+      
+      const avatarResults = await Promise.all(avatarPromises);
+      const avatarMap: Record<string, string> = {};
+      
+      avatarResults.forEach(result => {
+        if (result.avatarUrl) {
+          avatarMap[result.userId] = result.avatarUrl;
+        }
+      });
+      
+      setUserAvatars(avatarMap);
 
       // For each user, calculate bet statistics
       const userPromises = userData.map(async (user) => {
@@ -199,7 +227,8 @@ const LeaderboardScreen = () => {
             (normalizedActivity * activityWeight)
           ) * 100; // Scale to 0-100
           
-          return {
+          // At the end, return the user with avatarUrl added
+          const userWithStats = {
             ...user,
             bets_won: betsWon,
             bets_lost: betsLost,
@@ -208,8 +237,11 @@ const LeaderboardScreen = () => {
             stake_lost: stakeLost,
             win_percentage: winPercentage,
             net_winnings: netWinnings,
-            score
+            score,
+            avatarUrl: avatarMap[user.id] // Add the avatar URL
           };
+          
+          return userWithStats;
         } catch (error) {
           console.error(`Error processing user ${user.id}:`, error);
           return null;
@@ -311,44 +343,56 @@ const LeaderboardScreen = () => {
     const isCurrentUser = item.id === user?.id;
     
     return (
-      <LinearGradient
-        colors={isCurrentUser ? ['#6B46C1', '#4527A0'] : rankColors}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.userCard}
+      <TouchableOpacity
+        onPress={() => navigation.navigate('Dashboard', { userId: item.id })}
+        activeOpacity={0.7}
       >
-        <View style={styles.rankContainer}>
-          <Text style={styles.rankText}>{index + 1}</Text>
-        </View>
-        
-        <View style={styles.avatarContainer}>
-          <View style={styles.avatarPlaceholder}>
-            <Text style={styles.avatarInitial}>
-              {(item.display_name || item.username || '?')[0].toUpperCase()}
-            </Text>
+        <LinearGradient
+          colors={isCurrentUser ? ['#6B46C1', '#4527A0'] : rankColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.userCard}
+        >
+          <View style={styles.rankContainer}>
+            <Text style={styles.rankText}>{index + 1}</Text>
           </View>
-        </View>
-        
-        <View style={styles.userInfo}>
-          <Text style={styles.userName}>
-            {item.display_name || item.username}
-            {isCurrentUser && <Text style={styles.youText}> (You)</Text>}
-          </Text>
-          <View style={styles.statsRow}>
-            <Text style={styles.statText}>
-              <Text style={styles.statValue}>{item.win_percentage.toFixed(0)}%</Text> Win Rate
-            </Text>
-            <Text style={styles.statText}>
-              <Text style={styles.statValue}>${item.net_winnings.toFixed(2)}</Text> Net
-            </Text>
+          
+          <View style={styles.avatarContainer}>
+            {item.avatarUrl ? (
+              <Image 
+                source={{ uri: item.avatarUrl }} 
+                style={styles.avatarImage} 
+              />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarInitial}>
+                  {(item.display_name || item.username || '?')[0].toUpperCase()}
+                </Text>
+              </View>
+            )}
           </View>
-        </View>
-        
-        <View style={styles.scoreContainer}>
-          <Text style={styles.scoreLabel}>SCORE</Text>
-          <Text style={styles.scoreValue}>{Math.round(item.score)}</Text>
-        </View>
-      </LinearGradient>
+          
+          <View style={styles.userInfo}>
+            <Text style={styles.userName}>
+              {item.display_name || item.username}
+              {isCurrentUser && <Text style={styles.youText}> (You)</Text>}
+            </Text>
+            <View style={styles.statsRow}>
+              <Text style={styles.statText}>
+                <Text style={styles.statValue}>{item.win_percentage.toFixed(0)}%</Text> Win Rate
+              </Text>
+              <Text style={styles.statText}>
+                <Text style={styles.statValue}>${item.net_winnings.toFixed(2)}</Text> Net
+              </Text>
+            </View>
+          </View>
+          
+          <View style={styles.scoreContainer}>
+            <Text style={styles.scoreLabel}>SCORE</Text>
+            <Text style={styles.scoreValue}>{Math.round(item.score)}</Text>
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
     );
   };
 
@@ -396,6 +440,13 @@ const LeaderboardScreen = () => {
     </View>
   );
 
+  // Add refresh handler
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchLeaderboardData();
+    setIsRefreshing(false);
+  };
+
   if (isLoading) {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
@@ -429,6 +480,8 @@ const LeaderboardScreen = () => {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={renderListHeader}
         ListEmptyComponent={renderListEmptyComponent}
+        refreshing={isRefreshing}
+        onRefresh={handleRefresh}
       />
     </SafeAreaView>
   );
@@ -650,6 +703,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
     paddingHorizontal: 32,
+  },
+  avatarImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
 });
 

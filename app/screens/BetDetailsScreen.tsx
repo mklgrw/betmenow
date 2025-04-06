@@ -1336,7 +1336,12 @@ const BetDetailsScreen = () => {
       
       // Add creator element
       participantElements.push(
-        <View key="creator" style={styles.participantItem}>
+        <TouchableOpacity 
+          key="creator" 
+          style={styles.participantItem}
+          onPress={() => navigation.navigate('Dashboard', { userId: bet.creator_id })}
+          activeOpacity={0.7}
+        >
           <View style={[styles.avatarContainer, styles.challengerAvatar]}>
             <Text style={styles.avatarText}>{creatorInitial}</Text>
           </View>
@@ -1349,7 +1354,7 @@ const BetDetailsScreen = () => {
               <Text style={styles.statusText}>Creator</Text>
             </View>
           </View>
-        </View>
+        </TouchableOpacity>
       );
     }
     
@@ -1374,7 +1379,12 @@ const BetDetailsScreen = () => {
         const firstInitial = (displayName?.charAt(0) || username.charAt(0) || 'U').toUpperCase();
         
         participantElements.push(
-          <View key={item.id.toString()} style={styles.participantItem}>
+          <TouchableOpacity 
+            key={item.id.toString()} 
+            style={styles.participantItem}
+            onPress={() => navigation.navigate('Dashboard', { userId: item.recipient_id })}
+            activeOpacity={0.7}
+          >
             <View style={[styles.avatarContainer, styles.recipientAvatar]}>
               <Text style={styles.avatarText}>{firstInitial}</Text>
             </View>
@@ -1391,14 +1401,17 @@ const BetDetailsScreen = () => {
               <View style={styles.reminderContainer}>
                 <TouchableOpacity
                   style={styles.reminderButton}
-                  onPress={() => sendReminder(item.recipient_id || '')}
+                  onPress={(e) => {
+                    e.stopPropagation(); // Prevent navigating to profile when clicking remind
+                    sendReminder(item.recipient_id || '');
+                  }}
                 >
                   <Ionicons name="notifications-outline" size={20} color="white" />
                   <Text style={styles.reminderText}>Remind</Text>
                 </TouchableOpacity>
               </View>
             )}
-          </View>
+          </TouchableOpacity>
         );
       }
     });
