@@ -155,6 +155,7 @@ const BetDetailsScreen = () => {
       // Check if user is creator
       const userIsCreator = betData.creator_id === user?.id;
       setIsCreator(userIsCreator);
+      console.log("🔍 User is creator:", userIsCreator);
       
       // Get recipients with pending outcome and status
       const { data: recipientsData, error: recipientsError } = await supabase
@@ -173,6 +174,25 @@ const BetDetailsScreen = () => {
       if (recipientsError) {
         Alert.alert("Error", "Failed to load recipient details.");
         return;
+      }
+      
+      console.log("🔍 Recipients data:", recipientsData);
+      
+      // Check if any recipients have pending outcomes - FOR DEBUGGING
+      const anyPendingOutcomes = recipientsData?.some(r => !!r.pending_outcome);
+      console.log("🔍 Any pending outcomes:", anyPendingOutcomes);
+      if (anyPendingOutcomes) {
+        console.log("🔍 Pending outcomes found:", recipientsData.filter(r => !!r.pending_outcome));
+        
+        // If user is creator and there are pending outcomes from recipients,
+        // directly set opponentPendingOutcome
+        if (userIsCreator) {
+          const recipientsWithPendingOutcomes = recipientsData.filter(r => !!r.pending_outcome);
+          if (recipientsWithPendingOutcomes.length > 0) {
+            console.log("🔍 Creator should see pending outcome from recipient:", recipientsWithPendingOutcomes[0]);
+            setOpponentPendingOutcome(recipientsWithPendingOutcomes[0].pending_outcome);
+          }
+        }
       }
       
       // Check if the bet should be marked as completed based on recipient statuses
@@ -270,11 +290,19 @@ const BetDetailsScreen = () => {
           setPendingOutcome(myRecipient.pending_outcome || null);
           setHasPendingOutcome(!!myRecipient.pending_outcome);
           
-          // Find opponent's record
-          const opponentRecipient = recipientsData.find(r => r.recipient_id !== user?.id);
+          // Find opponent's record - improved to work in all cases
+          const opponentRecipients = recipientsData.filter(r => 
+            r.recipient_id !== user?.id && 
+            r.id !== myRecipient.id
+          );
           
-          if (opponentRecipient?.pending_outcome) {
-            setOpponentPendingOutcome(opponentRecipient.pending_outcome);
+          console.log("Opponent recipients:", opponentRecipients);
+          
+          // Check for pending outcomes from any opponent
+          const opponentWithPendingOutcome = opponentRecipients.find(r => !!r.pending_outcome);
+          if (opponentWithPendingOutcome?.pending_outcome) {
+            console.log("Found opponent with pending outcome:", opponentWithPendingOutcome);
+            setOpponentPendingOutcome(opponentWithPendingOutcome.pending_outcome);
           }
         } else {
           // If no recipient record for current user, check if they're the creator
@@ -283,6 +311,14 @@ const BetDetailsScreen = () => {
             setRecipientId(recipientsData[0].id);
             // Set appropriate default states for creator
             setRecipientStatus('creator');
+            
+            // Check if any recipients have pending outcomes
+            const recipientWithPendingOutcome = recipientsData.find(r => !!r.pending_outcome);
+            if (recipientWithPendingOutcome?.pending_outcome) {
+              console.log("Creator found recipient with pending outcome:", recipientWithPendingOutcome);
+              setOpponentPendingOutcome(recipientWithPendingOutcome.pending_outcome);
+            }
+            
             setPendingOutcome(null);
             setHasPendingOutcome(false);
             console.log("User is creator but not recipient - using first recipient ID for actions");
@@ -479,6 +515,9 @@ const BetDetailsScreen = () => {
   const handleDeclareWin = async () => {
     try {
       setLoading(true);
+      console.log("📢 Declaring win...");
+      console.log("Current recipient ID:", recipientId);
+      console.log("All recipients:", recipients);
       
       // Handle cases where recipientId might not be available
       let currentRecipientId = recipientId;
@@ -516,6 +555,7 @@ const BetDetailsScreen = () => {
       
       // Find opponent using the recipient ID
       const { betId: foundBetId, opponentId } = await findOpponent(currentRecipientId);
+      console.log("Found opponent ID:", opponentId, "for recipient:", currentRecipientId);
       
       // Ensure we have a valid bet ID
       const currentBetId = foundBetId || betId;
@@ -540,6 +580,9 @@ const BetDetailsScreen = () => {
         outcome_claimed_at: timestamp
       };
       
+      console.log("Updating with:", recipientUpdate, "for recipient:", currentRecipientId);
+      console.log("Updating with:", opponentUpdate, "for opponent:", opponentId);
+      
       // Update statuses
       await updateRecipientStatuses(
         currentRecipientId, 
@@ -548,21 +591,25 @@ const BetDetailsScreen = () => {
         opponentUpdate
       );
       
-      // Update the bet status to 'completed' in the database
-      if (currentBetId) {
-        console.log(`Updating bet ${currentBetId} status to completed`);
-        const { error: betUpdateError } = await supabase
-          .from('bets')
-          .update({ status: 'completed' })
-          .eq('id', currentBetId);
+      // Verify the updates were successful by re-fetching
+      if (currentRecipientId) {
+        const { data: updatedRecipient, error: recipientError } = await supabase
+          .from('bet_recipients')
+          .select('*')
+          .eq('id', currentRecipientId)
+          .single();
           
-        if (betUpdateError) {
-          console.error("Could not update bet status:", betUpdateError);
-        } else {
-          console.log("Successfully marked bet as completed");
-          // Also update the local bet state
-          setBet(prevBet => prevBet ? {...prevBet, status: 'completed'} : null);
-        }
+        console.log("Updated recipient:", updatedRecipient, "Error:", recipientError);
+      }
+      
+      if (opponentId) {
+        const { data: updatedOpponent, error: opponentError } = await supabase
+          .from('bet_recipients')
+          .select('*')
+          .eq('id', opponentId)
+          .single();
+          
+        console.log("Updated opponent:", updatedOpponent, "Error:", opponentError);
       }
       
       // Update UI to show pending state
@@ -581,11 +628,13 @@ const BetDetailsScreen = () => {
         });
       });
       
+      // Refresh bet details to get the latest state
+      await fetchBetDetails();
+      
       Alert.alert(
         "Win Claimed", 
         "Your win has been claimed and is waiting for confirmation from your opponent."
       );
-      
     } catch (error) {
       console.error("Error declaring win:", error);
       Alert.alert("Error", "An unexpected error occurred. Please try again.");
@@ -797,55 +846,6 @@ const BetDetailsScreen = () => {
       // Refresh the bet lists to ensure correct tab display
       await fetchBets();
       
-      // Get winner's Venmo username
-      let winnerVenmoUsername = null;
-      
-      if (opponentId) {
-        const opponent = recipients.find(r => r.id === opponentId);
-        if (opponent && opponent.profiles) {
-          const opponentUserId = opponent.recipient_id;
-          
-          if (opponentUserId) {
-            // Fetch the winner's Venmo username from the users table
-            const { data: winnerData, error: winnerError } = await supabase
-              .from('users')
-              .select('venmo_username')
-              .eq('id', opponentUserId)
-              .single();
-              
-            if (!winnerError && winnerData && winnerData.venmo_username) {
-              winnerVenmoUsername = winnerData.venmo_username;
-            }
-          }
-        }
-      }
-      
-      // Always try to open Venmo - if winnerVenmoUsername is null, this will silently fail
-      try {
-        if (bet) {
-          // Use hardcoded Venmo username if the fetched one is not available
-          const venmoUsername = winnerVenmoUsername || 'S-PBOO'; // Fallback to the test username
-          const note = "Paying bet";
-          const venmoUrl = `venmo://paycharge?txn=pay&recipients=${venmoUsername}&amount=${bet.stake}&note=${note}`;
-          
-          console.log("Directly opening Venmo with URL:", venmoUrl);
-          
-          // Try to open Venmo without any dialog
-          Linking.openURL(venmoUrl).catch(err => {
-            console.error('Error opening Venmo:', err);
-          });
-        } else {
-          console.error('Cannot open Venmo: bet is null');
-        }
-      } catch (error) {
-        console.error('Error with Venmo deep linking:', error);
-      } finally {
-        // Always navigate back, even if Venmo fails to open
-        setTimeout(() => {
-          navigation.goBack();
-        }, 500);
-      }
-      
     } catch (error) {
       console.error("Error declaring loss:", error);
       navigation.goBack();
@@ -981,6 +981,7 @@ const BetDetailsScreen = () => {
       
       // Handle cases where recipientId might not be available
       let currentRecipientId = recipientId;
+      let opponentId = null;
       
       if (!currentRecipientId) {
         // If no recipientId is available but we have recipients, use the first one
@@ -994,11 +995,24 @@ const BetDetailsScreen = () => {
         }
       }
       
-      // Find opponent using the recipient ID
-      const { betId: foundBetId, opponentId } = await findOpponent(currentRecipientId);
+      // Different logic for creator vs recipient
+      if (isCreator) {
+        // For creators, find the recipient who has a pending outcome
+        const recipientWithPendingOutcome = recipients.find(r => !!r.pending_outcome);
+        if (recipientWithPendingOutcome) {
+          opponentId = recipientWithPendingOutcome.id;
+          console.log("Creator found recipient with pending outcome:", recipientWithPendingOutcome);
+        } else {
+          console.log("No recipient with pending outcome found");
+        }
+      } else {
+        // For recipients, use the standard findOpponent function
+        const { betId: foundBetId, opponentId: foundOpponentId } = await findOpponent(currentRecipientId);
+        opponentId = foundOpponentId;
+      }
       
-      // Ensure we have a valid bet ID
-      const currentBetId = foundBetId || betId;
+      // Get the bet ID
+      const currentBetId = betId;
       
       if (!currentBetId) {
         Alert.alert("Error", "Invalid bet ID");
@@ -1011,6 +1025,8 @@ const BetDetailsScreen = () => {
         setLoading(false);
         return;
       }
+      
+      console.log("Confirming outcome with:", { currentRecipientId, opponentId, myFinalStatus, opponentFinalStatus });
       
       // Prepare updates
       const recipientUpdate = {
@@ -1069,19 +1085,62 @@ const BetDetailsScreen = () => {
       // Refresh the bet lists to ensure correct tab display
       await fetchBets();
       
-      Alert.alert(
-        "Outcome Confirmed", 
-        `You've confirmed the outcome of this bet.`,
-        [
-          { 
-            text: "OK", 
-            onPress: () => {
-              navigation.goBack();
+      // If I'm confirming a loss, open Venmo to pay the bet
+      if (myFinalStatus === 'lost') {
+        // Get winner's Venmo username (my opponent)
+        let winnerVenmoUsername = null;
+        const opponent = recipients.find(r => r.id === opponentId);
+        
+        if (opponent && opponent.profiles) {
+          const opponentUserId = opponent.recipient_id;
+          
+          if (opponentUserId) {
+            // Fetch the winner's Venmo username from the users table
+            const { data: winnerData, error: winnerError } = await supabase
+              .from('users')
+              .select('venmo_username')
+              .eq('id', opponentUserId)
+              .single();
+              
+            if (!winnerError && winnerData && winnerData.venmo_username) {
+              winnerVenmoUsername = winnerData.venmo_username;
             }
           }
-        ]
-      );
-      
+        }
+        
+        // Try to open Venmo with the payment
+        try {
+          if (bet) {
+            // Use hardcoded Venmo username if the fetched one is not available
+            const venmoUsername = winnerVenmoUsername || 'S-PBOO'; // Fallback to the test username
+            const note = "Paying bet";
+            const venmoUrl = `venmo://paycharge?txn=pay&recipients=${venmoUsername}&amount=${bet.stake}&note=${note}`;
+            
+            console.log("Opening Venmo with URL:", venmoUrl);
+            
+            // Try to open Venmo
+            Linking.openURL(venmoUrl).catch(err => {
+              console.error('Error opening Venmo:', err);
+            });
+          }
+        } catch (error) {
+          console.error('Error with Venmo deep linking:', error);
+        }
+        
+        // Show alert and navigate back
+        Alert.alert(
+          "Loss Confirmed",
+          "You've confirmed your loss. Make sure to complete the payment in Venmo.",
+          [{ text: "OK", onPress: () => navigation.goBack() }]
+        );
+      } else {
+        // For confirming a win, just show standard confirmation
+        Alert.alert(
+          "Outcome Confirmed", 
+          `You've confirmed the outcome of this bet.`,
+          [{ text: "OK", onPress: () => navigation.goBack() }]
+        );
+      }
     } catch (error) {
       console.error("Error confirming outcome:", error);
       Alert.alert("Error", "An unexpected error occurred. Please try again.");
@@ -1401,6 +1460,19 @@ const BetDetailsScreen = () => {
   const canAcceptRejectBet = !isCreator && recipientStatus === 'pending';
   const canDeclareOutcome = effectiveBetStatus === 'in_progress' && (recipientStatus === 'in_progress' || recipientStatus === 'creator');
   const canCancelBet = isCreator && effectiveBetStatus === 'in_progress';
+  
+  // Flag to determine if the user can confirm a pending outcome (claimed by the opponent)
+  const canConfirmOutcome = 
+    // Any status is fine as long as there's a pending outcome to confirm
+    opponentPendingOutcome !== null; 
+  
+  // Debug logs for why confirmation UI might not show
+  console.log("🔍 RENDER DEBUG: Rendering with opponentPendingOutcome:", opponentPendingOutcome);
+  console.log("🔍 RENDER DEBUG: recipientStatus:", recipientStatus);
+  console.log("🔍 RENDER DEBUG: User is creator:", isCreator);
+  console.log("🔍 RENDER DEBUG: effectiveBetStatus:", effectiveBetStatus);
+  console.log("🔍 RENDER DEBUG: canConfirmOutcome:", canConfirmOutcome);
+  console.log("🔍 RENDER DEBUG: All recipients:", recipients);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -1493,7 +1565,7 @@ const BetDetailsScreen = () => {
         )}
 
         {/* Display action buttons if the bet is still in progress and there's no pending outcome */}
-        {effectiveBetStatus === 'in_progress' && recipientStatus === 'in_progress' && !pendingOutcome && !opponentPendingOutcome && (
+        {canDeclareOutcome && !pendingOutcome && !opponentPendingOutcome && (
           <View style={styles.actionContainerVertical}>
             <Text style={styles.actionTitle}>Declare Outcome</Text>
             
@@ -1518,12 +1590,17 @@ const BetDetailsScreen = () => {
         )}
 
         {/* Display pending outcome confirmation UI if opponent claimed an outcome */}
-        {opponentPendingOutcome && recipientStatus === 'in_progress' && (
+        {canConfirmOutcome && (
           <View style={styles.pendingOutcomeContainer}>
             <Text style={styles.pendingOutcomeTitle}>
               {opponentPendingOutcome === 'won' 
-                ? 'Your opponent claims they won this bet' 
-                : 'Your opponent claims they lost this bet'}
+                ? (isCreator 
+                  ? 'Your opponent claims they won this bet. Do you agree?' 
+                  : 'Your opponent claims they won this bet')
+                : (isCreator
+                  ? 'Your opponent claims they lost this bet. Do you agree?'
+                  : 'Your opponent claims they lost this bet')
+              }
             </Text>
             
             <View style={styles.pendingOutcomeButtons}>
@@ -1533,7 +1610,10 @@ const BetDetailsScreen = () => {
                 disabled={loading}
               >
                 <Text style={styles.actionButtonText}>
-                  {opponentPendingOutcome === 'won' ? 'Confirm Their Win' : 'Accept Their Loss'}
+                  {opponentPendingOutcome === 'won' 
+                    ? (isCreator ? 'Confirm (They Won)' : 'Confirm (I Lost)')
+                    : (isCreator ? 'Confirm (They Lost)' : 'Confirm (I Won)')
+                  }
                 </Text>
               </TouchableOpacity>
               
@@ -1556,20 +1636,6 @@ const BetDetailsScreen = () => {
                 ? 'You claimed victory. Waiting for confirmation...' 
                 : 'You claimed a loss. Waiting for confirmation...'}
             </Text>
-          </View>
-        )}
-
-        {/* Creator actions for bet management */}
-        {isCreator && effectiveBetStatus === 'in_progress' && !recipientStatus && (
-          <View style={styles.actionContainer}>
-            <TouchableOpacity 
-              style={styles.cancelButton}
-              onPress={handleCancelBet}
-              disabled={loading}
-            >
-              <Ionicons name="close-circle-outline" size={20} color="white" />
-              <Text style={styles.actionButtonText}>Cancel Bet</Text>
-            </TouchableOpacity>
           </View>
         )}
 
