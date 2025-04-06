@@ -348,14 +348,6 @@ const HomeScreen = () => {
           }
         />
       )}
-
-      {/* Add Bet Button */}
-      <TouchableOpacity 
-        style={styles.addButton}
-        onPress={() => navigation.navigate('IssueBet')}
-      >
-        <Ionicons name="add" size={32} color="white" />
-      </TouchableOpacity>
     </SafeAreaView>
   );
 };
@@ -516,22 +508,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
   },
-  addButton: {
-    position: 'absolute',
-    bottom: 20,
-    alignSelf: 'center',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#6B46C1',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-  },
   deleteButton: {
     padding: 5,
     marginBottom: 5,
@@ -573,17 +549,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     marginLeft: 3,
-  },
-  floatingButton: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#6B46C1',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
 });
 
