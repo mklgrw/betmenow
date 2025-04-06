@@ -7,6 +7,8 @@ import CalendarScreen from '../screens/CalendarScreen';
 import ActivityScreen from '../screens/ActivityScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import IssueBetScreen from '../screens/IssueBetScreen';
+import DashboardScreen from '../screens/DashboardScreen';
+import LeaderboardScreen from '../screens/LeaderboardScreen';
 import { useTheme } from '../context/ThemeContext';
 
 const Tab = createBottomTabNavigator();
@@ -60,11 +62,11 @@ const MainTabNavigator = () => {
         }}
       />
       <Tab.Screen 
-        name="Calendar" 
-        component={CalendarScreen} 
+        name="Dashboard" 
+        component={DashboardScreen} 
         options={{
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="calendar" color={color} size={size} />
+            <Ionicons name="stats-chart" color={color} size={size} />
           ),
         }}
       />
@@ -77,6 +79,15 @@ const MainTabNavigator = () => {
           ),
           tabBarButton: (props) => (
             <CustomTabButton {...props} onPress={() => props.onPress && props.onPress()} />
+          ),
+        }}
+      />
+      <Tab.Screen 
+        name="Leaderboard" 
+        component={LeaderboardScreen} 
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="trophy" color={color} size={size} />
           ),
         }}
       />
