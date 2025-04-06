@@ -34,26 +34,23 @@ const LoginScreen = () => {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please enter both email and password');
+      Alert.alert('Error', 'Please fill in all fields');
       return;
     }
-
-    console.log('Login attempt with:', email);
+    
     setLoading(true);
     
     try {
-      // Using email for authentication with Supabase
-      const { error } = await signIn(email, password);
+      const success = await signIn(email, password);
       
-      if (error) {
-        console.error('Login error:', error);
-        Alert.alert('Error', error.message || 'Failed to login');
+      if (success) {
+        console.log("Login successful");
       } else {
-        console.log('Login successful');
+        console.log("Login failed");
       }
-    } catch (error: any) {
-      console.error('Login exception:', error);
-      Alert.alert('Error', error.message || 'An unexpected error occurred');
+    } catch (error) {
+      console.error('Unexpected login error:', error);
+      Alert.alert('Error', 'An unexpected error occurred');
     } finally {
       setLoading(false);
     }

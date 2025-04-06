@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,10 +6,14 @@ import {
   TouchableOpacity,
   FlatList,
   SafeAreaView,
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../services/supabase';
 
 // Mock data for activity feed
 const MOCK_ACTIVITIES = [
@@ -43,14 +47,219 @@ const MOCK_ACTIVITIES = [
   },
 ];
 
+type Activity = {
+  id: string;
+  description: string;
+  timestamp: string;
+  likes: number;
+  comments: number;
+  betId?: string;
+};
+
 const ActivityScreen = () => {
   const navigation = useNavigation();
   const theme = useTheme();
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [activities, setActivities] = useState<Activity[]>(MOCK_ACTIVITIES);
 
-  const renderActivityItem = ({ item }: { item: any }) => (
+  useEffect(() => {
+    if (user) {
+      fetchActivities();
+      
+      // Add a focus listener to refresh data when the screen is focused
+      const unsubscribe = navigation.addListener('focus', () => {
+        console.log('ActivityScreen focused - refreshing activities data');
+        fetchActivities();
+      });
+      
+      // Clean up the listener when the component is unmounted
+      return unsubscribe;
+    }
+  }, [navigation, user]);
+
+  // Format timestamp for display
+  const formatTimestamp = (timestamp: string) => {
+    if (!timestamp) return "";
+    
+    const date = new Date(timestamp);
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    // Check if today
+    if (date.toDateString() === now.toDateString()) {
+      return `Today at ${date.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}`;
+    }
+    
+    // Check if yesterday
+    if (date.toDateString() === yesterday.toDateString()) {
+      return `Yesterday at ${date.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}`;
+    }
+    
+    // Otherwise return month and day
+    return `${date.toLocaleDateString([], {month: 'short', day: 'numeric'})} at ${date.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}`;
+  };
+
+  const fetchActivities = async () => {
+    try {
+      setLoading(true);
+      console.log("Starting to fetch activities, user ID:", user?.id);
+      
+      if (!user?.id) {
+        console.log("No user ID available, using mock data");
+        setActivities(MOCK_ACTIVITIES);
+        setLoading(false);
+        return;
+      }
+      
+      // Fetch bet notifications where user is creator (to see acceptance/rejection)
+      const { data: createdBetNotifications, error: createdBetError } = await supabase
+        .from('bet_recipients')
+        .select(`
+          id,
+          status,
+          created_at,
+          updated_at,
+          bet_id,
+          recipient_id,
+          bets (
+            id,
+            description,
+            stake,
+            creator_id
+          ),
+          users: recipient_id (
+            id,
+            username,
+            display_name
+          )
+        `)
+        .eq('bets.creator_id', user.id)
+        .in('status', ['in_progress', 'rejected'])
+        .order('updated_at', { ascending: false });
+        
+      if (createdBetError) {
+        console.error("Error fetching creator bet notifications:", createdBetError);
+      }
+      
+      console.log("Fetched creator bet notifications:", createdBetNotifications?.length || 0);
+      
+      // Fetch bet notifications where user is recipient (invitations & outcomes)
+      const { data: receivedBetNotifications, error: receivedBetError } = await supabase
+        .from('bet_recipients')
+        .select(`
+          id,
+          status,
+          created_at,
+          updated_at,
+          bet_id,
+          recipient_id,
+          bets (
+            id,
+            description,
+            stake,
+            creator_id
+          ),
+          users: bets.creator_id (
+            id,
+            username,
+            display_name
+          )
+        `)
+        .eq('recipient_id', user.id)
+        .order('updated_at', { ascending: false });
+        
+      if (receivedBetError) {
+        console.error("Error fetching recipient bet notifications:", receivedBetError);
+      }
+      
+      console.log("Fetched recipient bet notifications:", receivedBetNotifications?.length || 0);
+      
+      // Process notifications into activity items
+      const activityItems: Activity[] = [];
+      
+      // Process notifications for bets user created
+      if (createdBetNotifications && createdBetNotifications.length > 0) {
+        createdBetNotifications.forEach(notification => {
+          const bet = notification.bets;
+          const recipient = notification.users;
+          
+          const displayName = recipient.display_name || recipient.username || 'User';
+          let description = '';
+          
+          if (notification.status === 'in_progress') {
+            description = `${displayName} accepted your bet: "${bet.description}" for $${bet.stake} 🎉`;
+          } else if (notification.status === 'rejected') {
+            description = `${displayName} rejected your bet: "${bet.description}" for $${bet.stake} 😔`;
+          }
+          
+          if (description) {
+            activityItems.push({
+              id: notification.id,
+              description,
+              timestamp: formatTimestamp(notification.updated_at || notification.created_at),
+              likes: 0,
+              comments: 0,
+              betId: bet.id
+            });
+          }
+        });
+      }
+      
+      // Process notifications for bets user received
+      if (receivedBetNotifications && receivedBetNotifications.length > 0) {
+        receivedBetNotifications.forEach(notification => {
+          const bet = notification.bets;
+          const creator = notification.users;
+          
+          const displayName = creator.display_name || creator.username || 'User';
+          let description = '';
+          
+          if (notification.status === 'pending') {
+            description = `${displayName} invited you to a bet: "${bet.description}" for $${bet.stake} 📨`;
+          } else if (notification.status === 'in_progress') {
+            description = `You accepted ${displayName}'s bet: "${bet.description}" for $${bet.stake} 🎯`;
+          } else if (notification.status === 'rejected') {
+            description = `You rejected ${displayName}'s bet: "${bet.description}" for $${bet.stake} 👎`;
+          }
+          
+          if (description) {
+            activityItems.push({
+              id: notification.id,
+              description,
+              timestamp: formatTimestamp(notification.updated_at || notification.created_at),
+              likes: 0,
+              comments: 0,
+              betId: bet.id
+            });
+          }
+        });
+      }
+      
+      if (activityItems.length > 0) {
+        console.log(`Setting ${activityItems.length} activity items`);
+        setActivities(activityItems);
+      } else {
+        console.log("No activities found, using mock data");
+        setActivities(MOCK_ACTIVITIES);
+      }
+    } catch (error) {
+      console.error("Unexpected error in fetchActivities:", error);
+      Alert.alert("Error", "Failed to load activity feed");
+      setActivities(MOCK_ACTIVITIES);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const renderActivityItem = ({ item }: { item: Activity }) => (
     <TouchableOpacity
       style={styles.activityCard}
-      onPress={() => navigation.navigate('ActivityDetails', { activityId: item.id })}
+      onPress={() => item.betId 
+        ? navigation.navigate('BetDetails', { betId: item.betId })
+        : navigation.navigate('ActivityDetails', { activityId: item.id })
+      }
     >
       <Text style={styles.activityDescription}>{item.description}</Text>
       <Text style={styles.activityTimestamp}>{item.timestamp}</Text>
@@ -77,23 +286,29 @@ const ActivityScreen = () => {
         </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={MOCK_ACTIVITIES}
-        renderItem={renderActivityItem}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No activity yet</Text>
-            <TouchableOpacity
-              style={styles.createBetButton}
-              onPress={() => navigation.navigate('IssueBet')}
-            >
-              <Text style={styles.createBetText}>Create a Bet</Text>
-            </TouchableOpacity>
-          </View>
-        }
-      />
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+      ) : (
+        <FlatList
+          data={activities}
+          renderItem={renderActivityItem}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No activity yet</Text>
+              <TouchableOpacity
+                style={styles.createBetButton}
+                onPress={() => navigation.navigate('IssueBet')}
+              >
+                <Text style={styles.createBetText}>Create a Bet</Text>
+              </TouchableOpacity>
+            </View>
+          }
+        />
+      )}
 
       <TouchableOpacity
         style={styles.floatingButton}
@@ -192,6 +407,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.5,
     shadowRadius: 5,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

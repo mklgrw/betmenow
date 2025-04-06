@@ -15,7 +15,8 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.betmenow"
     },
     "android": {
       "adaptiveIcon": {
@@ -35,4 +36,4 @@
       "isDebug": true
     }
   }
-} 
+}

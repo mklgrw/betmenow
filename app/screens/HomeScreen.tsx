@@ -13,82 +13,37 @@ import {
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+// @ts-ignore - There's an issue with moduleResolution for @react-navigation/native
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useBets, ProcessedBet } from '../context/BetContext';
 import { supabase, createBetsTable, createBetRecipientsTable, createTableWithSQL, createBetStatusTrigger } from '../services/supabase';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { NavigationProp } from '@react-navigation/native';
 
-// Mock data for bets (will replace with actual data from Supabase)
-const MOCK_BETS = [
-  {
-    id: '1',
-    description: "Jake bet Rudy won't text 📱 his ex \"i miss u\"",
-    stake: 2,
-    timestamp: "Today at 9:45am",
-    commentCount: 1,
-    status: 'in_progress',
-  },
-  {
-    id: '2',
-    description: "Paul bet Earl he won't eat a slice of 🍕 with toothpaste as the sauce",
-    stake: 15,
-    timestamp: "Yesterday at 4:31pm",
-    commentCount: 2,
-    status: 'in_progress',
-  },
-  {
-    id: '3',
-    description: "James bet Sergey he can't burp the alphabet",
-    stake: 10,
-    timestamp: "Mar 29 at 9:35pm",
-    commentCount: 3,
-    status: 'in_progress',
-  },
-  {
-    id: '4',
-    description: "Axel bet Jake won't eat a spoonful of wasabi while maintaining 👁 contact",
-    stake: 5,
-    timestamp: "Mar 29 at 8:20pm",
-    commentCount: 8,
-    status: 'in_progress',
-  },
-  {
-    id: '5',
-    description: "Mark bet Sarah she can't go a week without social media",
-    stake: 20,
-    timestamp: "Mar 25 at 7:35pm",
-    commentCount: 0,
-    status: 'pending',
-  },
-  {
-    id: '6',
-    description: "You bet Lisa she won't run a 5K in under 30 minutes",
-    stake: 25,
-    timestamp: "Mar 22 at 5:10pm",
-    commentCount: 5,
-    status: 'won',
-  },
-  {
-    id: '7',
-    description: "You bet Michael he can't eat 5 hot wings in 2 minutes",
-    stake: 50,
-    timestamp: "Jan 12 at 6:45pm",
-    commentCount: 12,
-    status: 'lost',
-  },
-];
+// Define types for bet data
+type BetDetails = {
+  id: string;
+  description: string;
+  stake: number;
+  status: string;
+  created_at: string;
+  creator_id: string;
+};
+
+type RecipientBet = {
+  id: string;
+  status: string;
+  bet_id: string;
+  pending_outcome?: string | null;
+  recipient_id: string;
+};
 
 type TabType = 'in_progress' | 'pending' | 'lost' | 'won';
 
 const HomeScreen = () => {
-  const [activeTab, setActiveTab] = useState<TabType>('in_progress');
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [bets, setBets] = useState(MOCK_BETS);
-  const [filteredBets, setFilteredBets] = useState(MOCK_BETS);
-  
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp<any>>();
   const theme = useTheme();
   const { user } = useAuth();
   
@@ -97,6 +52,23 @@ const HomeScreen = () => {
   const refreshParam = route?.params?.refresh;
   const activeTabParam = route.params?.activeTab;
   
+  // Use the BetContext for state management
+  const { 
+    bets, 
+    filteredBets, 
+    loading, 
+    refreshing, 
+    activeTab, 
+    searchQuery, 
+    fetchBets, 
+    deleteBet, 
+    handleRejectBet, 
+    handleAcceptBet,
+    setActiveTab,
+    setSearchQuery,
+    onRefresh 
+  } = useBets();
+
   // Check for activeTab parameter from IssueBetScreen
   useEffect(() => {
     if (activeTabParam && activeTabParam !== activeTab) {
@@ -126,182 +98,6 @@ const HomeScreen = () => {
     }
   }, [refreshParam, route.params?.newBetCreated]);
 
-  useEffect(() => {
-    // Filter bets based on active tab and search query
-    const filtered = bets.filter((bet) => {
-      const matchesTab = bet.status === activeTab;
-      const matchesSearch = searchQuery === '' || 
-        bet.description.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesTab && matchesSearch;
-    });
-    
-    setFilteredBets(filtered);
-  }, [activeTab, searchQuery, bets]);
-
-  const fetchBets = async () => {
-    setLoading(true);
-    try {
-      console.log("🔍 FETCH BETS - Starting to fetch bets, user ID:", user?.id);
-      console.log("🔍 FETCH BETS - Active tab:", activeTab);
-      console.log("🔍 FETCH BETS - Route params:", route.params);
-      
-      if (!user?.id) {
-        console.log("🔍 FETCH BETS - No user ID available, using mock data");
-        setBets(MOCK_BETS);
-        setLoading(false);
-        return;
-      }
-      
-      // Debug: First try a simple query just to test connection
-      console.log("🔍 FETCH BETS - Testing simple query...");
-      const { data: testData, error: testError } = await supabase
-        .from('bets')
-        .select('id')
-        .limit(1);
-        
-      if (testError) {
-        console.error("❌ FETCH BETS - Basic query failed:", testError);
-        setBets(MOCK_BETS);
-        setLoading(false);
-        return;
-      }
-      
-      console.log("✅ FETCH BETS - Basic query succeeded, test data:", testData);
-      
-      // Try fetching bets where user is creator
-      console.log("🔍 FETCH BETS - Fetching bets where user is creator...");
-      const { data: myBets, error: myBetsError } = await supabase
-        .from('bets')
-        .select('id, description, stake, status, created_at')
-        .eq('creator_id', user.id);
-      
-      if (myBetsError) {
-        console.error("❌ FETCH BETS - Error fetching created bets:", myBetsError);
-        setBets(MOCK_BETS);
-        setLoading(false);
-        return;
-      }
-      
-      console.log("✅ FETCH BETS - Successfully fetched created bets:", myBets ? myBets.length : 0);
-      if (myBets && myBets.length > 0) {
-        console.log("📄 FETCH BETS - Created bets data:", JSON.stringify(myBets, null, 2));
-      }
-      
-      // Fetch bets where user is a recipient
-      console.log("🔍 FETCH BETS - Fetching bets where user is a recipient...");
-      const { data: recipientBets, error: recipientBetsError } = await supabase
-        .from('bet_recipients')
-        .select('id, status, bet_id')
-        .eq('recipient_id', user.id);
-      
-      if (recipientBetsError) {
-        console.error("🔍 FETCH BETS - Error fetching recipient bets:", recipientBetsError);
-      } else {
-        console.log("🔍 FETCH BETS - Successfully fetched recipient bets:", recipientBets ? recipientBets.length : 0);
-      }
-      
-      // Now fetch the actual bet details for those recipient bets
-      let betDetails = [];
-      if (recipientBets && recipientBets.length > 0) {
-        // Extract bet IDs from recipient bets
-        const betIds = recipientBets.map(rb => rb.bet_id);
-        
-        // Fetch the bet details
-        const { data: betData, error: betDataError } = await supabase
-          .from('bets')
-          .select('id, description, stake, status, created_at, creator_id')
-          .in('id', betIds);
-          
-        if (betDataError) {
-          console.error("🔍 FETCH BETS - Error fetching bet details:", betDataError);
-        } else {
-          console.log("🔍 FETCH BETS - Successfully fetched bet details:", betData ? betData.length : 0);
-          betDetails = betData || [];
-        }
-      }
-
-      // Process the bets
-      let allBets = [];
-      
-      // Process bets created by the user
-      if (myBets && myBets.length > 0) {
-        const processedCreatedBets = myBets.map(bet => {
-          return {
-            id: bet.id,
-            description: bet.description || "No description",
-            stake: bet.stake || 0,
-            timestamp: formatTimestamp(bet.created_at),
-            commentCount: 0,
-            status: (bet.status as TabType) || 'pending',
-            isCreator: true
-          };
-        });
-        
-        allBets = [...processedCreatedBets];
-      }
-      
-      // Process bets where user is a recipient
-      if (recipientBets && recipientBets.length > 0 && betDetails.length > 0) {
-        const processedRecipientBets = recipientBets.map(recipientBet => {
-          // Find the corresponding bet details
-          const bet = betDetails.find(b => b.id === recipientBet.bet_id);
-          if (!bet) return null;
-          
-          return {
-            id: bet.id,
-            description: bet.description || "No description",
-            stake: bet.stake || 0,
-            timestamp: formatTimestamp(bet.created_at),
-            commentCount: 0,
-            status: (recipientBet.status as TabType) || 'pending',
-            isCreator: false,
-            recipientId: recipientBet.id,
-            creatorId: bet.creator_id
-          };
-        }).filter(Boolean); // Remove any null values
-        
-        allBets = [...allBets, ...processedRecipientBets];
-      }
-      
-      if (allBets.length === 0) {
-        console.log("🔍 FETCH BETS - No bets found, using mock data");
-        setBets(MOCK_BETS);
-      } else {
-        console.log("🔍 FETCH BETS - Total processed bets:", allBets.length);
-        setBets(allBets);
-      }
-    } catch (error) {
-      console.error("🔍 FETCH BETS - Unexpected error in fetchBets:", error);
-      setBets(MOCK_BETS);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  // Helper function to format timestamps
-  const formatTimestamp = (timestamp: string) => {
-    if (!timestamp) return "";
-    
-    const date = new Date(timestamp);
-    const now = new Date();
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    // Check if today
-    if (date.toDateString() === now.toDateString()) {
-      return `Today at ${date.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}`;
-    }
-    
-    // Check if yesterday
-    if (date.toDateString() === yesterday.toDateString()) {
-      return `Yesterday at ${date.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}`;
-    }
-    
-    // Otherwise return month and day
-    return `${date.toLocaleDateString([], {month: 'short', day: 'numeric'})} at ${date.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}`;
-  };
-
   // Call fetchBets when component loads
   useEffect(() => {
     if (user) {
@@ -318,37 +114,6 @@ const HomeScreen = () => {
       return unsubscribe;
     }
   }, [navigation, user]);
-
-  const deleteBet = async (betId: string) => {
-    try {
-      setLoading(true);
-      console.log(`🔍 DELETE BET - Attempting to delete bet with ID: ${betId}`);
-      
-      // Direct delete operation with minimal filters
-      const { error } = await supabase
-        .from('bets')
-        .delete()
-        .eq('id', betId);
-      
-      if (error) {
-        console.error("🔍 DELETE BET - Error deleting bet:", error);
-        Alert.alert("Error", "Failed to delete bet");
-      } else {
-        console.log("🔍 DELETE BET - Delete operation completed successfully");
-        // Update the UI immediately
-        setBets(prevBets => prevBets.filter(bet => bet.id !== betId));
-        Alert.alert("Success", "Bet deleted successfully");
-        
-        // Refresh bets to ensure UI is in sync with server
-        fetchBets();
-      }
-    } catch (e) {
-      console.error("🔍 DELETE BET - Exception in deleteBet:", e);
-      Alert.alert("Error", "An unexpected error occurred");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const confirmDeleteBet = (betId: string) => {
     Alert.alert(
@@ -368,309 +133,7 @@ const HomeScreen = () => {
     );
   };
 
-  // Handle rejecting a bet
-  const handleRejectBet = async (recipientId: string) => {
-    try {
-      setLoading(true);
-      console.log("🔍 REJECT BET - Attempting to reject bet with recipientId:", recipientId);
-      
-      // Use the secure function
-      const { data, error } = await supabase.rpc(
-        'secure_reject_bet',
-        { 
-          p_recipient_id: recipientId
-        }
-      );
-      
-      if (error) {
-        console.error("🔍 REJECT BET - Error rejecting bet:", error);
-        Alert.alert("Error", "Failed to reject bet. Please try again.");
-        return;
-      }
-      
-      if (!data || !data.success) {
-        console.error("🔍 REJECT BET - Function returned failure:", data?.error || "Unknown error");
-        Alert.alert("Error", data?.error || "Failed to reject bet. Please try again.");
-        return;
-      }
-      
-      console.log("🔍 REJECT BET - Successfully rejected");
-      Alert.alert("Success", "Bet rejected successfully!");
-      
-      // Refresh the bets list
-      fetchBets();
-    } catch (error) {
-      console.error("🔍 REJECT BET - Unexpected error in handleRejectBet:", error);
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  // Handle accepting a bet
-  const handleAcceptBet = async (recipientId: string) => {
-    try {
-      setLoading(true);
-      console.log("🔍 ACCEPT BET - Attempting to accept bet with recipientId:", recipientId);
-      
-      // Use the secure function
-      const { data, error } = await supabase.rpc(
-        'secure_accept_bet',
-        { 
-          p_recipient_id: recipientId
-        }
-      );
-      
-      if (error) {
-        console.error("🔍 ACCEPT BET - Error accepting bet:", error);
-        Alert.alert("Error", "Failed to accept bet. Please try again.");
-        return;
-      }
-      
-      if (!data || !data.success) {
-        console.error("🔍 ACCEPT BET - Function returned failure:", data?.error || "Unknown error");
-        Alert.alert("Error", data?.error || "Failed to accept bet. Please try again.");
-        return;
-      }
-      
-      console.log("🔍 ACCEPT BET - Successfully accepted");
-      Alert.alert("Success", "Bet accepted successfully!");
-      
-      // Refresh the bets list
-      fetchBets();
-    } catch (error) {
-      console.error("🔍 ACCEPT BET - Unexpected error in handleAcceptBet:", error);
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  // Alternative handler for rejecting a bet that doesn't rely on SQL functions
-  const alternativeRejectBet = async (recipientId: string) => {
-    try {
-      setLoading(true);
-      console.log("🔍 ALTERNATIVE REJECT - Attempting direct table update for recipientId:", recipientId);
-      
-      // Try direct update to the table without using the function
-      const { data, error } = await supabase
-        .from('bet_recipients')
-        .update({ status: 'rejected' })
-        .eq('id', recipientId);
-      
-      if (error) {
-        console.error("🔍 ALTERNATIVE REJECT - Error updating bet recipient status:", error);
-        Alert.alert("Error", "Failed to reject bet. Please try again.");
-        return;
-      }
-      
-      Alert.alert("Success", "Bet rejected successfully!");
-      
-      // Refresh the bets list
-      fetchBets();
-    } catch (error) {
-      console.error("🔍 ALTERNATIVE REJECT - Unexpected error:", error);
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Updated confirm rejecting a bet to use all available methods
-  const confirmRejectBet = (recipientId: string, betId: string) => {
-    Alert.alert(
-      "Reject Bet",
-      "Are you sure you want to reject this bet?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
-        { 
-          text: "Normal Reject", 
-          onPress: () => handleRejectBet(recipientId)
-        },
-        { 
-          text: "Direct DB Reject", 
-          onPress: () => alternativeRejectBet(recipientId),
-          style: "destructive"
-        },
-        { 
-          text: "Raw SQL Reject", 
-          onPress: () => rawRejectBet(recipientId)
-        },
-        { 
-          text: "☢️ Nuclear Option", 
-          onPress: () => nuclearRejectBet(recipientId)
-        },
-        { 
-          text: "🦸‍♂️ Superuser", 
-          onPress: () => superuserRejectBet(recipientId)
-        },
-        { 
-          text: "💥 Delete & Recreate", 
-          onPress: () => deleteRecreateRecipient(recipientId)
-        }
-      ]
-    );
-  };
-
-  // Add back the confirmAcceptBet function
-  const confirmAcceptBet = (recipientId: string, betId: string) => {
-    Alert.alert(
-      "Accept Bet",
-      "Are you sure you want to accept this bet?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
-        { 
-          text: "Accept", 
-          onPress: () => handleAcceptBet(recipientId)
-        }
-      ]
-    );
-  };
-
-  // Raw direct update for rejecting a bet - last resort
-  const rawRejectBet = async (recipientId: string) => {
-    try {
-      setLoading(true);
-      console.log("🔥 RAW REJECT - Attempting raw SQL update for recipientId:", recipientId);
-      
-      // Call raw update function
-      const { data, error } = await supabase.rpc(
-        'raw_update_recipient_status',
-        { 
-          p_recipient_id: recipientId,
-          p_status: 'rejected'
-        }
-      );
-      
-      if (error) {
-        console.error("🔥 RAW REJECT - Error updating recipient status:", error);
-        Alert.alert("Error", "Failed to reject bet. Please try again.");
-        return;
-      }
-      
-      if (data === true) {
-        console.log("🔥 RAW REJECT - Successfully rejected!");
-        Alert.alert("Success", "Bet rejected successfully!");
-        // Refresh the bets list
-        fetchBets();
-      } else {
-        console.error("🔥 RAW REJECT - Function returned false");
-        Alert.alert("Error", "Raw rejection failed. Please try again.");
-      }
-    } catch (error) {
-      console.error("🔥 RAW REJECT - Unexpected error:", error);
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Nuclear option for rejecting a bet - absolute last resort
-  const nuclearRejectBet = async (recipientId: string) => {
-    try {
-      setLoading(true);
-      console.log("☢️ NUCLEAR REJECT - Last resort for recipientId:", recipientId);
-      
-      // Call our nuclear option
-      const { data, error } = await supabase.rpc(
-        'nuclear_reject_recipient',
-        { 
-          p_recipient_id: recipientId
-        }
-      );
-      
-      if (error) {
-        console.error("☢️ NUCLEAR REJECT - Failed:", error);
-        Alert.alert("Error", "Nuclear rejection failed: " + error.message);
-        return;
-      }
-      
-      console.log("☢️ NUCLEAR REJECT - Success response:", data);
-      Alert.alert("Success", "Bet rejected with NUCLEAR option!");
-      
-      // Refresh the bets list
-      fetchBets();
-    } catch (error) {
-      console.error("☢️ NUCLEAR REJECT - Unexpected error:", error);
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Superuser update for rejecting a bet - absolute final approach
-  const superuserRejectBet = async (recipientId: string) => {
-    try {
-      setLoading(true);
-      console.log("🦸‍♂️ SUPERUSER REJECT - Attempting superuser update for recipientId:", recipientId);
-      
-      // Call superuser function
-      const { data, error } = await supabase.rpc(
-        'superuser_update_recipient',
-        { 
-          p_recipient_id: recipientId
-        }
-      );
-      
-      if (error) {
-        console.error("🦸‍♂️ SUPERUSER REJECT - Failed:", error);
-        Alert.alert("Error", "Superuser rejection failed: " + error.message);
-        return;
-      }
-      
-      console.log("🦸‍♂️ SUPERUSER REJECT - Success response:", data);
-      Alert.alert("Success", "Bet rejected with SUPERUSER privileges!");
-      
-      // Refresh the bets list
-      fetchBets();
-    } catch (error) {
-      console.error("🦸‍♂️ SUPERUSER REJECT - Unexpected error:", error);
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  // Delete and recreate recipient with rejected status - ultimate final approach
-  const deleteRecreateRecipient = async (recipientId: string) => {
-    try {
-      setLoading(true);
-      console.log("💥 DELETE & RECREATE - Last attempt for recipientId:", recipientId);
-      
-      // Call our delete and recreate function
-      const { data, error } = await supabase.rpc(
-        'delete_recipient_and_create_new',
-        { 
-          p_recipient_id: recipientId
-        }
-      );
-      
-      if (error) {
-        console.error("💥 DELETE & RECREATE - Failed:", error);
-        Alert.alert("Error", "Delete and recreate failed: " + error.message);
-        return;
-      }
-      
-      console.log("💥 DELETE & RECREATE - Success response:", data);
-      Alert.alert("Success", "Recipient recreated with rejected status!");
-      
-      // Refresh the bets list
-      fetchBets();
-    } catch (error) {
-      console.error("💥 DELETE & RECREATE - Unexpected error:", error);
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const renderBetCard = ({ item }: { item: any }) => {
+  const renderBetCard = ({ item }: { item: ProcessedBet }) => {
     // Determine if this bet can be deleted (creator can delete pending bets)
     const canDelete = item.status === 'pending' && item.isCreator === true;
     
@@ -705,7 +168,9 @@ const HomeScreen = () => {
                 style={styles.acceptButton}
                 onPress={(e) => {
                   e.stopPropagation(); // Prevent navigating to bet details
-                  confirmAcceptBet(item.recipientId, item.id);
+                  if (item.recipientId) {
+                    handleAcceptBet(item.recipientId);
+                  }
                 }}
               >
                 <Ionicons name="checkmark" size={20} color="#4CAF50" />
@@ -716,7 +181,9 @@ const HomeScreen = () => {
                 style={styles.rejectButton}
                 onPress={(e) => {
                   e.stopPropagation(); // Prevent navigating to bet details
-                  confirmRejectBet(item.recipientId, item.id);
+                  if (item.recipientId) {
+                    handleRejectBet(item.recipientId);
+                  }
                 }}
               >
                 <Ionicons name="close" size={20} color="#FF6B6B" />
@@ -791,6 +258,9 @@ const HomeScreen = () => {
           recipient_id UUID NOT NULL,
           status TEXT DEFAULT 'pending',
           created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          pending_outcome TEXT DEFAULT NULL,
+          outcome_claimed_by UUID DEFAULT NULL,
+          outcome_claimed_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
           CONSTRAINT fk_bet FOREIGN KEY(bet_id) REFERENCES public.bets(id) ON DELETE CASCADE
         );
       `;
@@ -809,13 +279,6 @@ const HomeScreen = () => {
     
     initializeTables();
   }, []);
-
-  // Handle pull-to-refresh
-  const onRefresh = () => {
-    console.log("🔄 PULL TO REFRESH - User manually refreshed");
-    setRefreshing(true);
-    fetchBets();
-  };
   
   // Update to trigger refresh when tabs change
   useEffect(() => {

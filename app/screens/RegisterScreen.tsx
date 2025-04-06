@@ -43,11 +43,11 @@ const RegisterScreen = () => {
       return;
     }
 
-    console.log('Registration attempt with:', email);
+    console.log('Registration attempt with:', email, 'and username:', username);
     setLoading(true);
 
     try {
-      const { error, user } = await signUp(email, password);
+      const { error, user } = await signUp(email, password, username);
 
       if (error) {
         console.error('Registration error:', error);

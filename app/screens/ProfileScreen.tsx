@@ -27,10 +27,12 @@ const ProfileScreen = () => {
         <View style={styles.profileInfo}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
-              {user?.email?.charAt(0).toUpperCase() || 'U'}
+              {((user?.user_metadata?.display_name || user?.email || 'U').charAt(0).toUpperCase())}
             </Text>
           </View>
-          <Text style={styles.username}>{user?.email?.split('@')[0] || 'Username'}</Text>
+          <Text style={styles.username}>
+            {user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Username'}
+          </Text>
           <Text style={styles.email}>{user?.email || 'email@example.com'}</Text>
         </View>
 
