@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
+import { Platform } from 'react-native';
 
 // Supabase credentials
 const supabaseUrl = 'https://hjuggbuiobpxdlgkbcph.supabase.co';
@@ -223,5 +225,120 @@ export const addBetRecipients = async (betId: string, recipientIds: string[]) =>
   } catch (error) {
     console.error("Error adding bet recipients:", error);
     return { success: false, error };
+  }
+};
+
+// Add a helper function for avatar uploads
+
+export const uploadAvatar = async (uri: string, userId: string) => {
+  return new Promise((resolve, reject) => {
+    try {
+      console.log('Starting XMLHttpRequest upload with uri:', uri);
+      
+      // Generate a simple unique filename
+      const fileName = `${userId}_${Date.now()}.jpg`;
+      console.log('Using filename:', fileName);
+      
+      // Create FormData
+      const formData = new FormData();
+      
+      // Add the file to FormData - making sure to handle the URI correctly
+      formData.append('file', {
+        uri: uri,
+        name: fileName,
+        type: 'image/jpeg'
+      } as any);
+      
+      // The URL for direct upload to Supabase Storage
+      const uploadUrl = `${supabaseUrl}/storage/v1/object/avatars/${fileName}`;
+      console.log('Upload URL:', uploadUrl);
+      
+      // Create an XHR request for more direct control
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', uploadUrl, true);
+      
+      // Set headers
+      xhr.setRequestHeader('Authorization', `Bearer ${supabaseAnonKey}`);
+      xhr.setRequestHeader('apikey', supabaseAnonKey);
+      xhr.setRequestHeader('x-upsert', 'true');
+      
+      // Set up event handlers
+      xhr.onload = function() {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          console.log('Upload successful, response:', xhr.responseText);
+          
+          // Construct the public URL
+          const publicUrl = `${supabaseUrl}/storage/v1/object/public/avatars/${fileName}`;
+          console.log('Public URL:', publicUrl);
+          
+          // Store in AsyncStorage for persistence
+          if (userId) {
+            AsyncStorage.setItem(`user_avatar_${userId}`, publicUrl)
+              .catch(err => console.error('Error storing avatar URL:', err));
+          }
+          
+          resolve({ success: true, url: publicUrl });
+        } else {
+          console.error('Upload failed with status:', xhr.status, xhr.responseText);
+          resolve({ success: false, error: new Error(`Upload failed with status ${xhr.status}: ${xhr.responseText}`) });
+        }
+      };
+      
+      xhr.onerror = function() {
+        console.error('XHR error occurred during upload');
+        resolve({ success: false, error: new Error('Network error during upload') });
+      };
+      
+      xhr.onabort = function() {
+        console.error('XHR upload aborted');
+        resolve({ success: false, error: new Error('Upload aborted') });
+      };
+      
+      xhr.ontimeout = function() {
+        console.error('XHR upload timed out');
+        resolve({ success: false, error: new Error('Upload timed out') });
+      };
+      
+      // Set a timeout
+      xhr.timeout = 30000; // 30 seconds
+      
+      // Log progress (helpful for debugging)
+      xhr.upload.onprogress = function(event) {
+        if (event.lengthComputable) {
+          const percentComplete = Math.round((event.loaded / event.total) * 100);
+          console.log(`Upload progress: ${percentComplete}%`);
+        }
+      };
+      
+      // Send the FormData
+      console.log('Sending XHR request...');
+      xhr.send(formData);
+      
+    } catch (error) {
+      console.error('Error in uploadAvatar:', error);
+      resolve({ success: false, error });
+    }
+  });
+};
+
+// Add a function to ensure avatar_url column exists
+
+export const ensureAvatarUrlColumn = async () => {
+  try {
+    // Try to execute a SQL statement that adds the avatar_url column if it doesn't exist
+    const { error } = await supabase.rpc('ensure_avatar_url_column');
+    
+    if (error) {
+      console.warn('Failed to ensure avatar_url column exists:', error);
+      
+      // Try alternate approach with direct SQL if RPC fails
+      const { error: sqlError } = await supabase.from('users').select('avatar_url').limit(1);
+      
+      if (sqlError && sqlError.code === '42703') { // Column doesn't exist
+        console.warn('Avatar URL column does not exist. App functionality may be limited.');
+      }
+    }
+  } catch (error) {
+    console.error('Error checking avatar_url column:', error);
   }
 }; 
