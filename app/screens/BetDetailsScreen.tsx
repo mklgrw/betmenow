@@ -94,7 +94,7 @@ const BetDetailsScreen = () => {
   const { user } = useAuth();
   
   // Get shared functions from BetContext
-  const { updateRecipientStatuses, findOpponent } = useBets();
+  const { updateRecipientStatuses, findOpponent, fetchBets } = useBets();
   
   // Extract and validate betId
   const params = route.params as { betId?: string; refresh?: number };
@@ -106,6 +106,32 @@ const BetDetailsScreen = () => {
       fetchBetDetails();
     }
   }, [betId, params?.refresh]);
+
+  // Add a useEffect to update the UI when the status changes locally
+  useEffect(() => {
+    if (bet && bet.status === 'completed') {
+      // Force a refresh of recipients to ensure they have correct status
+      const checkRecipientsStatus = async () => {
+        try {
+          // Get fresh data for the bet
+          const { data: updatedBet, error: betError } = await supabase
+            .from('bets')
+            .select('status')
+            .eq('id', betId)
+            .single();
+          
+          if (!betError && updatedBet && updatedBet.status !== bet.status) {
+            // If the database status differs from local, update local
+            setBet(prevBet => prevBet ? {...prevBet, status: updatedBet.status} : null);
+          }
+        } catch (error) {
+          console.error("Error checking bet status:", error);
+        }
+      };
+      
+      checkRecipientsStatus();
+    }
+  }, [recipientStatus]);
 
   // Function to fetch bet details
   const fetchBetDetails = async () => {
@@ -147,6 +173,28 @@ const BetDetailsScreen = () => {
       if (recipientsError) {
         Alert.alert("Error", "Failed to load recipient details.");
         return;
+      }
+      
+      // Check if the bet should be marked as completed based on recipient statuses
+      const hasWonOrLostStatus = recipientsData?.some(r => 
+        r.status === 'won' || r.status === 'lost'
+      );
+      
+      // If recipients have won/lost status but bet isn't marked completed, update it
+      if (hasWonOrLostStatus && betData.status !== 'completed') {
+        console.log(`Bet ${betId} has won/lost recipients but status is ${betData.status}. Updating to completed.`);
+        const { error: updateError } = await supabase
+          .from('bets')
+          .update({ status: 'completed' })
+          .eq('id', betId);
+          
+        if (updateError) {
+          console.error("Failed to update bet status:", updateError);
+        } else {
+          // Update local state to reflect the change
+          betData.status = 'completed';
+          setBet({...betData});
+        }
       }
       
       // Get the creator information
@@ -500,6 +548,23 @@ const BetDetailsScreen = () => {
         opponentUpdate
       );
       
+      // Update the bet status to 'completed' in the database
+      if (currentBetId) {
+        console.log(`Updating bet ${currentBetId} status to completed`);
+        const { error: betUpdateError } = await supabase
+          .from('bets')
+          .update({ status: 'completed' })
+          .eq('id', currentBetId);
+          
+        if (betUpdateError) {
+          console.error("Could not update bet status:", betUpdateError);
+        } else {
+          console.log("Successfully marked bet as completed");
+          // Also update the local bet state
+          setBet(prevBet => prevBet ? {...prevBet, status: 'completed'} : null);
+        }
+      }
+      
       // Update UI to show pending state
       setPendingOutcome('won');
       setHasPendingOutcome(true);
@@ -635,10 +700,16 @@ const BetDetailsScreen = () => {
           const timestamp = new Date().toISOString();
           await declareFinalOutcome(betId, 'lost', timestamp);
           
-          // Update UI
+          // Update UI immediately
           setRecipientStatus('lost');
           setPendingOutcome(null);
           setHasPendingOutcome(false);
+          
+          // Update local bet state immediately
+          setBet(prevBet => prevBet ? {...prevBet, status: 'completed'} : null);
+          
+          // Refresh the bet lists to ensure correct tab display
+          await fetchBets();
           
           // Skip dialog and navigate back
           navigation.goBack();
@@ -689,7 +760,24 @@ const BetDetailsScreen = () => {
         opponentUpdate
       );
       
-      // Update UI
+      // Update the bet status to 'completed' in the database
+      if (currentBetId) {
+        console.log(`Updating bet ${currentBetId} status to completed`);
+        const { error: betUpdateError } = await supabase
+          .from('bets')
+          .update({ status: 'completed' })
+          .eq('id', currentBetId);
+          
+        if (betUpdateError) {
+          console.error("Could not update bet status:", betUpdateError);
+        } else {
+          console.log("Successfully marked bet as completed");
+          // Update the local bet state immediately
+          setBet(prevBet => prevBet ? {...prevBet, status: 'completed'} : null);
+        }
+      }
+      
+      // Update UI immediately
       setRecipientStatus('lost');
       setPendingOutcome(null);
       setHasPendingOutcome(false);
@@ -705,6 +793,9 @@ const BetDetailsScreen = () => {
           return r;
         });
       });
+      
+      // Refresh the bet lists to ensure correct tab display
+      await fetchBets();
       
       // Get winner's Venmo username
       let winnerVenmoUsername = null;
@@ -731,17 +822,21 @@ const BetDetailsScreen = () => {
       
       // Always try to open Venmo - if winnerVenmoUsername is null, this will silently fail
       try {
-        // Use hardcoded Venmo username if the fetched one is not available
-        const venmoUsername = winnerVenmoUsername || 'S-PBOO'; // Fallback to the test username
-        const note = "Paying bet";
-        const venmoUrl = `venmo://paycharge?txn=pay&recipients=${venmoUsername}&amount=${bet.stake}&note=${note}`;
-        
-        console.log("Directly opening Venmo with URL:", venmoUrl);
-        
-        // Try to open Venmo without any dialog
-        Linking.openURL(venmoUrl).catch(err => {
-          console.error('Error opening Venmo:', err);
-        });
+        if (bet) {
+          // Use hardcoded Venmo username if the fetched one is not available
+          const venmoUsername = winnerVenmoUsername || 'S-PBOO'; // Fallback to the test username
+          const note = "Paying bet";
+          const venmoUrl = `venmo://paycharge?txn=pay&recipients=${venmoUsername}&amount=${bet.stake}&note=${note}`;
+          
+          console.log("Directly opening Venmo with URL:", venmoUrl);
+          
+          // Try to open Venmo without any dialog
+          Linking.openURL(venmoUrl).catch(err => {
+            console.error('Error opening Venmo:', err);
+          });
+        } else {
+          console.error('Cannot open Venmo: bet is null');
+        }
       } catch (error) {
         console.error('Error with Venmo deep linking:', error);
       } finally {
@@ -790,14 +885,19 @@ const BetDetailsScreen = () => {
       const isCreator = bet.creator_id === user?.id;
       console.log(`User is creator of this bet: ${isCreator}`);
       
-      // Update the bet's status directly as well
-      const { error: betUpdateError } = await supabase
+      // Update the bet's status directly as well - MAKE THIS A PRIORITY AND LOG THE RESULT
+      const { data: betUpdateData, error: betUpdateError } = await supabase
         .from('bets')
         .update({ status: 'completed' })
-        .eq('id', betId);
+        .eq('id', betId)
+        .select('id, status');
         
       if (betUpdateError) {
         console.error("Could not update bet status:", betUpdateError);
+      } else {
+        console.log("Successfully marked bet as completed:", betUpdateData);
+        // Also update local state
+        setBet(prevBet => prevBet ? {...prevBet, status: 'completed'} : null);
       }
       
       // If there's only one recipient, update it
@@ -818,7 +918,12 @@ const BetDetailsScreen = () => {
           
         if (updateError) {
           console.error("Error updating recipient:", updateError);
+        } else {
+          console.log(`Successfully updated recipient ${recipients[0].id} status`);
         }
+        
+        // Refresh the bet lists to ensure correct tab display
+        await fetchBets();
         
         return;
       }
@@ -850,6 +955,9 @@ const BetDetailsScreen = () => {
           console.error(`Error updating recipient ${recipient.id}:`, updateError);
         }
       }
+      
+      // Refresh the bet lists to ensure correct tab display
+      await fetchBets();
       
     } catch (error) {
       console.error("Error in declareFinalOutcome:", error);
@@ -923,6 +1031,23 @@ const BetDetailsScreen = () => {
         opponentUpdate
       );
       
+      // Update the bet status to 'completed' in the database
+      if (currentBetId) {
+        console.log(`Updating bet ${currentBetId} status to completed`);
+        const { error: betUpdateError } = await supabase
+          .from('bets')
+          .update({ status: 'completed' })
+          .eq('id', currentBetId);
+          
+        if (betUpdateError) {
+          console.error("Could not update bet status:", betUpdateError);
+        } else {
+          console.log("Successfully marked bet as completed");
+          // Also update the local bet state
+          setBet(prevBet => prevBet ? {...prevBet, status: 'completed'} : null);
+        }
+      }
+      
       // Update UI
       setRecipientStatus(myFinalStatus);
       setOpponentPendingOutcome(null);
@@ -940,6 +1065,9 @@ const BetDetailsScreen = () => {
           return r;
         });
       });
+      
+      // Refresh the bet lists to ensure correct tab display
+      await fetchBets();
       
       Alert.alert(
         "Outcome Confirmed", 
@@ -1258,12 +1386,21 @@ const BetDetailsScreen = () => {
       </View>
     );
   }
+  
+  // Check if any recipient has a 'won' or 'lost' status
+  // If so, the bet status should be 'completed'
+  const hasWonOrLostRecipient = recipients.some(r => 
+    r.status === 'won' || r.status === 'lost'
+  );
+  
+  // We'll use this calculated status to ensure UI consistency
+  const effectiveBetStatus = hasWonOrLostRecipient ? 'completed' : bet.status;
 
   const canDeleteBet = isCreator && bet.status === 'pending';
   const canEditBet = isCreator && bet.status === 'pending';
   const canAcceptRejectBet = !isCreator && recipientStatus === 'pending';
-  const canDeclareOutcome = bet.status === 'in_progress' && (recipientStatus === 'in_progress' || recipientStatus === 'creator');
-  const canCancelBet = isCreator && bet.status === 'in_progress';
+  const canDeclareOutcome = effectiveBetStatus === 'in_progress' && (recipientStatus === 'in_progress' || recipientStatus === 'creator');
+  const canCancelBet = isCreator && effectiveBetStatus === 'in_progress';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -1302,12 +1439,15 @@ const BetDetailsScreen = () => {
             <Text style={styles.detailLabel}>Status:</Text>
             <View style={[
               styles.statusBadge,
-              bet.status === 'pending' ? styles.pendingBadge : 
-              bet.status === 'in_progress' ? styles.inProgressBadge :
-              bet.status === 'won' ? styles.wonBadge : styles.lostBadge
+              // Always show completed if any recipient has won/lost status
+              hasWonOrLostRecipient ? styles.completedBadge :
+              effectiveBetStatus === 'pending' ? styles.pendingBadge : 
+              effectiveBetStatus === 'in_progress' ? styles.inProgressBadge :
+              effectiveBetStatus === 'cancelled' ? styles.rejectedBadge :
+              styles.completedBadge
             ]}>
               <Text style={styles.statusText}>
-                {bet.status.charAt(0).toUpperCase() + bet.status.slice(1)}
+                {hasWonOrLostRecipient ? 'Completed' : capitalizeFirstLetter(effectiveBetStatus)}
               </Text>
             </View>
           </View>
@@ -1353,7 +1493,7 @@ const BetDetailsScreen = () => {
         )}
 
         {/* Display action buttons if the bet is still in progress and there's no pending outcome */}
-        {recipientStatus === 'in_progress' && !pendingOutcome && !opponentPendingOutcome && (
+        {effectiveBetStatus === 'in_progress' && recipientStatus === 'in_progress' && !pendingOutcome && !opponentPendingOutcome && (
           <View style={styles.actionContainerVertical}>
             <Text style={styles.actionTitle}>Declare Outcome</Text>
             
@@ -1420,7 +1560,7 @@ const BetDetailsScreen = () => {
         )}
 
         {/* Creator actions for bet management */}
-        {isCreator && bet?.status === 'in_progress' && !recipientStatus && (
+        {isCreator && effectiveBetStatus === 'in_progress' && !recipientStatus && (
           <View style={styles.actionContainer}>
             <TouchableOpacity 
               style={styles.cancelButton}

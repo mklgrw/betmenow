@@ -41,6 +41,8 @@ export type ProcessedBet = {
   isCreator: boolean;
   recipientId?: string;
   creatorId?: string;
+  hasWonOrLostRecipient: boolean;
+  isMyOutcome?: 'won' | 'lost' | null; // User-specific outcome for this bet
 };
 
 export type RecipientUpdate = {
@@ -136,72 +138,142 @@ export const BetProvider: React.FC<BetProviderProps> = ({ children }) => {
   // Filter bets based on active tab and search query
   useEffect(() => {
     const filtered = bets.filter((bet) => {
-      const matchesTab = bet.status === activeTab;
-      const matchesSearch = searchQuery === '' || 
-        bet.description.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesTab && matchesSearch;
+      // Special handling for in_progress and completed tabs
+      if (activeTab === 'in_progress') {
+        // Only show bets that are truly in progress and don't have won/lost recipients
+        const isReallyInProgress = bet.status === 'in_progress' && 
+          !bet.hasWonOrLostRecipient;
+        const matchesSearch = searchQuery === '' || 
+          bet.description.toLowerCase().includes(searchQuery.toLowerCase());
+        return isReallyInProgress && matchesSearch;
+      } 
+      else if (activeTab === 'completed') {
+        // Show bets that are completed OR have won/lost recipients
+        const isCompletedOrDecided = bet.status === 'completed' || 
+          bet.hasWonOrLostRecipient;
+        const matchesSearch = searchQuery === '' || 
+          bet.description.toLowerCase().includes(searchQuery.toLowerCase());
+        return isCompletedOrDecided && matchesSearch;
+      }
+      else if (activeTab === 'won') {
+        // For 'won' tab, check the user's specific outcome for this bet
+        const userWon = bet.status === 'won' || (bet.isMyOutcome === 'won');
+        const matchesSearch = searchQuery === '' || 
+          bet.description.toLowerCase().includes(searchQuery.toLowerCase());
+        return userWon && matchesSearch;
+      }
+      else if (activeTab === 'lost') {
+        // For 'lost' tab, check the user's specific outcome for this bet
+        const userLost = bet.status === 'lost' || (bet.isMyOutcome === 'lost');
+        const matchesSearch = searchQuery === '' || 
+          bet.description.toLowerCase().includes(searchQuery.toLowerCase());
+        return userLost && matchesSearch;
+      }
+      else {
+        // Normal filtering for other tabs
+        const matchesTab = bet.status === activeTab;
+        const matchesSearch = searchQuery === '' || 
+          bet.description.toLowerCase().includes(searchQuery.toLowerCase());
+        return matchesTab && matchesSearch;
+      }
     });
     
     setFilteredBets(filtered);
   }, [activeTab, searchQuery, bets]);
 
   const fetchBets = async () => {
-    setLoading(true);
     try {
-      if (!user?.id) {
-        setBets([]);
-        setLoading(false);
+      setLoading(true);
+      
+      if (!user) {
+        console.error("No user found in fetchBets");
         return;
       }
       
-      // Try fetching bets where user is creator
+      // Get all bets created by the user
       const { data: myBets, error: myBetsError } = await supabase
         .from('bets')
-        .select('id, description, stake, status, created_at')
+        .select('*')
         .eq('creator_id', user.id);
-      
+        
       if (myBetsError) {
         console.error("Error fetching created bets:", myBetsError);
-        setBets([]);
-        setLoading(false);
         return;
       }
       
-      // Fetch bets where user is a recipient
+      // Get all bet recipients where the user is a recipient
       const { data: recipientBets, error: recipientBetsError } = await supabase
         .from('bet_recipients')
-        .select('id, status, bet_id, pending_outcome')
+        .select('*, bets(id, description, stake, creator_id, status, created_at)')
         .eq('recipient_id', user.id);
-      
+        
       if (recipientBetsError) {
         console.error("Error fetching recipient bets:", recipientBetsError);
+        return;
       }
       
-      // Now fetch the actual bet details for those recipient bets
-      let betDetails: BetDetails[] = [];
-      if (recipientBets && recipientBets.length > 0) {
-        // Extract bet IDs from recipient bets
-        const betIds = recipientBets.map(rb => rb.bet_id);
-        
-        // Fetch the bet details
+      console.log("Fetched recipient bets:", recipientBets);
+      
+      // Extract bet IDs from recipient bets
+      const betIds = recipientBets.map(rb => rb.bet_id);
+      
+      // Get details for these bets
+      let betDetails: any[] = [];
+      if (betIds.length > 0) {
         const { data: betData, error: betDataError } = await supabase
           .from('bets')
-          .select('id, description, stake, status, created_at, creator_id')
+          .select('*')
           .in('id', betIds);
           
         if (betDataError) {
           console.error("Error fetching bet details:", betDataError);
-        } else {
-          betDetails = betData || [];
+        } else if (betData) {
+          betDetails = betData;
         }
       }
-
-      // Process the bets
+      
+      // For each bet, check if any recipients have won/lost status
+      const betWonLostStatus: Record<string, boolean> = {};
+      
+      // First, check bets I created
+      for (const bet of myBets || []) {
+        const { data: recipients, error } = await supabase
+          .from('bet_recipients')
+          .select('id, status')
+          .eq('bet_id', bet.id);
+          
+        if (!error && recipients) {
+          betWonLostStatus[bet.id] = recipients.some(r => 
+            r.status === 'won' || r.status === 'lost'
+          );
+        }
+      }
+      
+      // Combine all bets
       let allBets: ProcessedBet[] = [];
       
       // Process bets created by the user
       if (myBets && myBets.length > 0) {
-        const processedCreatedBets = myBets.map(bet => {
+        const processedCreatedBets = await Promise.all(myBets.map(async bet => {
+          // Check if there are any recipients with 'lost' status (meaning creator won)
+          let myOutcome: 'won' | 'lost' | null = null;
+          
+          const { data: recipients, error } = await supabase
+            .from('bet_recipients')
+            .select('id, status')
+            .eq('bet_id', bet.id);
+            
+          if (!error && recipients) {
+            // If any recipient lost, the creator won
+            if (recipients.some(r => r.status === 'lost')) {
+              myOutcome = 'won';
+            }
+            // If any recipient won, the creator lost
+            else if (recipients.some(r => r.status === 'won')) {
+              myOutcome = 'lost';
+            }
+          }
+          
           return {
             id: bet.id,
             description: bet.description || "No description",
@@ -209,9 +281,11 @@ export const BetProvider: React.FC<BetProviderProps> = ({ children }) => {
             timestamp: formatTimestamp(bet.created_at),
             commentCount: 0,
             status: bet.status || 'pending',
-            isCreator: true
+            isCreator: true,
+            hasWonOrLostRecipient: betWonLostStatus[bet.id] || false,
+            isMyOutcome: myOutcome
           } as ProcessedBet;
-        });
+        }));
         
         allBets = [...processedCreatedBets];
       }
@@ -224,6 +298,14 @@ export const BetProvider: React.FC<BetProviderProps> = ({ children }) => {
             const bet = betDetails.find(b => b.id === recipientBet.bet_id);
             if (!bet) return null;
             
+            // For bets I'm a recipient of, check if my status is won/lost
+            const hasWonLost = recipientBet.status === 'won' || recipientBet.status === 'lost';
+            
+            // Set my outcome based on my recipient status
+            let myOutcome: 'won' | 'lost' | null = null;
+            if (recipientBet.status === 'won') myOutcome = 'won';
+            else if (recipientBet.status === 'lost') myOutcome = 'lost';
+            
             return {
               id: bet.id,
               description: bet.description || "No description",
@@ -234,7 +316,9 @@ export const BetProvider: React.FC<BetProviderProps> = ({ children }) => {
               pendingOutcome: recipientBet.pending_outcome,
               isCreator: false,
               recipientId: recipientBet.id,
-              creatorId: bet.creator_id
+              creatorId: bet.creator_id,
+              hasWonOrLostRecipient: hasWonLost || betWonLostStatus[bet.id] || false,
+              isMyOutcome: myOutcome
             } as ProcessedBet;
           })
           .filter((bet): bet is ProcessedBet => bet !== null); // Type guard to remove nulls
