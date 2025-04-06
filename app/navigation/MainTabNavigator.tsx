@@ -1,14 +1,13 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import HomeScreen from '../screens/HomeScreen';
 import CalendarScreen from '../screens/CalendarScreen';
 import ActivityScreen from '../screens/ActivityScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import IssueBetScreen from '../screens/IssueBetScreen';
-import DashboardScreen from '../screens/DashboardScreen';
-import LeaderboardScreen from '../screens/LeaderboardScreen';
+import FriendsScreen from '../screens/FriendsScreen';
 import { useTheme } from '../context/ThemeContext';
 
 const Tab = createBottomTabNavigator();
@@ -61,12 +60,12 @@ const MainTabNavigator = () => {
           ),
         }}
       />
-      <Tab.Screen 
-        name="Dashboard" 
-        component={DashboardScreen} 
+      <Tab.Screen
+        name="Friends"
+        component={FriendsScreen}
         options={{
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="stats-chart" color={color} size={size} />
+          tabBarIcon: ({ focused, color, size }) => (
+            <Ionicons name={focused ? 'people' : 'people-outline'} size={size} color={color} />
           ),
         }}
       />
@@ -79,15 +78,6 @@ const MainTabNavigator = () => {
           ),
           tabBarButton: (props) => (
             <CustomTabButton {...props} onPress={() => props.onPress && props.onPress()} />
-          ),
-        }}
-      />
-      <Tab.Screen 
-        name="Leaderboard" 
-        component={LeaderboardScreen} 
-        options={{
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="trophy" color={color} size={size} />
           ),
         }}
       />
