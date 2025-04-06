@@ -29,7 +29,10 @@ type BetDetailsProps = {
 type Profile = {
   id: string;
   username: string;
+  display_name?: string;
   avatar_url?: string;
+  email?: string;
+  phone?: string;
 };
 
 type Bet = {
@@ -65,6 +68,12 @@ type BetRecipient = {
     id: string;
     username: string;
     display_name: string;
+  };
+  // Add creator property to store creator profile info
+  creator?: {
+    id: string;
+    username?: string;
+    display_name?: string;
   };
 };
 
@@ -139,29 +148,68 @@ const BetDetailsScreen = () => {
         return;
       }
       
+      // Get the creator information
+      const { data: creatorData, error: creatorError } = await supabase
+        .from('users')
+        .select('id, username, display_name')
+        .eq('id', betData.creator_id)
+        .single();
+        
+      if (creatorError) {
+        console.error("Error fetching creator data:", creatorError);
+      } else {
+        console.log("Fetched creator data:", creatorData);
+      }
+      
       if (recipientsData && recipientsData.length > 0) {
         // Collect user IDs to fetch display names
         const userIds = recipientsData.map(r => r.recipient_id).filter(Boolean);
         
-        // Fetch user display names
+        console.log("Fetching user data for user IDs:", userIds);
+        
+        // Fetch user display names from users table instead of profiles
         const { data: userData, error: userError } = await supabase
-          .from('profiles')
-          .select('id, username, avatar_url')
+          .from('users')
+          .select('id, username, display_name')
           .in('id', userIds);
           
+        if (userError) {
+          console.error("Error fetching user data:", userError);
+        }
+        
+        console.log("Fetched user data:", userData);
+        
         if (!userError && userData) {
           // Add display names to the recipients data
           const enhancedRecipients = recipientsData.map(recipient => {
             const userInfo = userData.find(u => u.id === recipient.recipient_id);
+            console.log(`Matching recipient_id ${recipient.recipient_id} with user:`, userInfo);
             return {
               ...recipient,
-              profiles: userInfo || null
+              profiles: userInfo || null // Keep the field name as profiles for backward compatibility
             };
           });
           
+          // Store creator data for use in UI
+          if (creatorData) {
+            // Add creator data as a special property
+            enhancedRecipients.forEach(r => {
+              r.creator = creatorData;
+            });
+          }
+          
           setRecipients(enhancedRecipients);
         } else {
-          setRecipients(recipientsData);
+          // Even without user data, add creator data if available
+          if (creatorData) {
+            const updatedRecipients = recipientsData.map(r => ({
+              ...r,
+              creator: creatorData
+            }));
+            setRecipients(updatedRecipients);
+          } else {
+            setRecipients(recipientsData);
+          }
         }
         
         // Find my recipient record
@@ -178,6 +226,24 @@ const BetDetailsScreen = () => {
           
           if (opponentRecipient?.pending_outcome) {
             setOpponentPendingOutcome(opponentRecipient.pending_outcome);
+          }
+        } else {
+          // If no recipient record for current user, check if they're the creator
+          if (isCreator && recipientsData.length > 0) {
+            // As creator, use the first recipient's ID for actions
+            setRecipientId(recipientsData[0].id);
+            // Set appropriate default states for creator
+            setRecipientStatus('creator');
+            setPendingOutcome(null);
+            setHasPendingOutcome(false);
+            console.log("User is creator but not recipient - using first recipient ID for actions");
+          } else {
+            // This is an edge case - user is neither creator nor recipient
+            console.log("User is neither creator nor recipient of this bet");
+            if (recipientsData.length > 0) {
+              // Use the first recipient's ID as a fallback for view-only access
+              setRecipientId(recipientsData[0].id);
+            }
           }
         }
       }
@@ -362,16 +428,54 @@ const BetDetailsScreen = () => {
   
   // Handle declaring win for a bet
   const handleDeclareWin = async () => {
-    if (!recipientId) {
-      Alert.alert("Error", "No recipient ID available");
-      return;
-    }
-    
     try {
       setLoading(true);
       
-      // Find opponent
-      const { betId, opponentId } = await findOpponent(recipientId);
+      // Handle cases where recipientId might not be available
+      let currentRecipientId = recipientId;
+      
+      if (!currentRecipientId) {
+        // If no recipientId is available but we have recipients, use the first one
+        if (recipients && recipients.length > 0) {
+          currentRecipientId = recipients[0].id;
+          console.log("Using first recipient ID:", currentRecipientId);
+        } else if (betId) {
+          // If we have a betId but no recipients, use the betId directly
+          console.log("No recipient ID available, using bet ID as fallback:", betId);
+          
+          // Update statuses using direct bet ID
+          const timestamp = new Date().toISOString();
+          await declareBetOutcome(betId, 'won', timestamp);
+          
+          // Update UI to show pending state
+          setPendingOutcome('won');
+          setHasPendingOutcome(true);
+          
+          Alert.alert(
+            "Win Claimed", 
+            "Your win has been claimed and is waiting for confirmation from your opponent."
+          );
+          
+          setLoading(false);
+          return;
+        } else {
+          Alert.alert("Error", "No recipient ID or bet ID available");
+          setLoading(false);
+          return;
+        }
+      }
+      
+      // Find opponent using the recipient ID
+      const { betId: foundBetId, opponentId } = await findOpponent(currentRecipientId);
+      
+      // Ensure we have a valid bet ID
+      const currentBetId = foundBetId || betId;
+      
+      if (!currentBetId) {
+        Alert.alert("Error", "Invalid bet ID");
+        setLoading(false);
+        return;
+      }
       
       // Prepare updates
       const timestamp = new Date().toISOString();
@@ -389,7 +493,7 @@ const BetDetailsScreen = () => {
       
       // Update statuses
       await updateRecipientStatuses(
-        recipientId, 
+        currentRecipientId, 
         recipientUpdate, 
         opponentId, 
         opponentUpdate
@@ -402,7 +506,7 @@ const BetDetailsScreen = () => {
       // Update recipients list
       setRecipients(prevRecipients => {
         return prevRecipients.map(r => {
-          if (r.id === recipientId) {
+          if (r.id === currentRecipientId) {
             return {...r, pending_outcome: 'won'};
           } else if (opponentId && r.id === opponentId) {
             return {...r, pending_outcome: 'lost'};
@@ -417,24 +521,157 @@ const BetDetailsScreen = () => {
       );
       
     } catch (error) {
+      console.error("Error declaring win:", error);
       Alert.alert("Error", "An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);
     }
   };
   
+  // Helper function to declare outcome when only bet ID is available
+  const declareBetOutcome = async (betId: string, outcome: string, timestamp: string) => {
+    try {
+      console.log(`Declaring ${outcome} outcome for bet ${betId}`);
+      
+      // Get all recipients for this bet
+      const { data: recipients, error: recipientsError } = await supabase
+        .from('bet_recipients')
+        .select('id, recipient_id')
+        .eq('bet_id', betId);
+        
+      if (recipientsError || !recipients || recipients.length === 0) {
+        console.error("Could not find recipients for this bet:", recipientsError);
+        throw new Error("Could not find recipients for this bet");
+      }
+      
+      // If we're the creator, we need to find our own recipient record vs others
+      const { data: bet, error: betError } = await supabase
+        .from('bets')
+        .select('creator_id')
+        .eq('id', betId)
+        .single();
+        
+      if (betError) {
+        console.error("Could not fetch bet details:", betError);
+        throw new Error("Could not fetch bet details");
+      }
+      
+      const isCreator = bet.creator_id === user?.id;
+      console.log(`User is creator of this bet: ${isCreator}`);
+      
+      // If there's only one recipient, update it
+      if (recipients.length === 1) {
+        console.log("Single recipient case - updating with pending outcome");
+        const recipientUpdate = {
+          pending_outcome: outcome === 'won' ? 'lost' : 'won', // Creator declares opposite for recipient
+          outcome_claimed_by: user?.id,
+          outcome_claimed_at: timestamp
+        };
+        
+        const { error: updateError } = await supabase
+          .from('bet_recipients')
+          .update(recipientUpdate)
+          .eq('id', recipients[0].id);
+          
+        if (updateError) {
+          console.error("Error updating recipient:", updateError);
+        }
+        
+        return;
+      }
+      
+      // If there are multiple recipients, we need to determine which ones to update
+      console.log(`Multiple recipients case (${recipients.length}) - updating all`);
+      for (const recipient of recipients) {
+        // If creator is declaring, set opposite outcome for recipients
+        // If not creator (unlikely here), set outcome based on if it's our record
+        const isMyRecord = isCreator ? false : recipient.recipient_id === user?.id;
+        const pendingOutcomeToSet = isCreator ? 
+          (outcome === 'won' ? 'lost' : 'won') : // Creator declares opposite for recipients
+          (isMyRecord ? outcome : (outcome === 'won' ? 'lost' : 'won')); // Handle non-creator case too
+          
+        const update = {
+          pending_outcome: pendingOutcomeToSet,
+          outcome_claimed_by: user?.id,
+          outcome_claimed_at: timestamp
+        };
+        
+        console.log(`Updating recipient ${recipient.id} with pending outcome: ${pendingOutcomeToSet}`);
+        const { error: updateError } = await supabase
+          .from('bet_recipients')
+          .update(update)
+          .eq('id', recipient.id);
+          
+        if (updateError) {
+          console.error(`Error updating recipient ${recipient.id}:`, updateError);
+        }
+      }
+      
+    } catch (error) {
+      console.error("Error in declareBetOutcome:", error);
+      throw error;
+    }
+  };
+
   // Handle declaring loss for a bet
   const handleDeclareLoss = async () => {
-    if (!recipientId) {
-      Alert.alert("Error", "No recipient ID available");
-      return;
-    }
-    
     try {
       setLoading(true);
       
-      // Find opponent
-      const { betId, opponentId } = await findOpponent(recipientId);
+      // Handle cases where recipientId might not be available
+      let currentRecipientId = recipientId;
+      
+      if (!currentRecipientId) {
+        // If no recipientId is available but we have recipients, use the first one
+        if (recipients && recipients.length > 0) {
+          currentRecipientId = recipients[0].id;
+          console.log("Using first recipient ID:", currentRecipientId);
+        } else if (betId) {
+          // If we have a betId but no recipients, use the betId directly
+          console.log("No recipient ID available, using bet ID as fallback:", betId);
+          
+          // This is a direct loss declaration - no need for confirmation
+          const timestamp = new Date().toISOString();
+          await declareFinalOutcome(betId, 'lost', timestamp);
+          
+          // Update UI
+          setRecipientStatus('lost');
+          setPendingOutcome(null);
+          setHasPendingOutcome(false);
+          
+          Alert.alert(
+            "Loss Declared", 
+            "You've declared a loss for this bet. Your opponent has been marked as the winner.",
+            [
+              { 
+                text: "OK", 
+                onPress: () => {
+                  navigation.goBack();
+                }
+              }
+            ]
+          );
+          
+          setLoading(false);
+          return;
+        } else {
+          Alert.alert("Error", "No recipient ID or bet ID available");
+          setLoading(false);
+          return;
+        }
+      }
+      
+      // Find opponent using the recipient ID
+      const { betId: foundBetId, opponentId } = await findOpponent(currentRecipientId);
+      
+      // Ensure we have a valid bet ID
+      const currentBetId = foundBetId || betId;
+      
+      if (!currentBetId) {
+        Alert.alert("Error", "Invalid bet ID");
+        setLoading(false);
+        return;
+      }
       
       // Prepare updates
       const timestamp = new Date().toISOString();
@@ -454,7 +691,7 @@ const BetDetailsScreen = () => {
       
       // Update statuses
       await updateRecipientStatuses(
-        recipientId, 
+        currentRecipientId, 
         recipientUpdate, 
         opponentId, 
         opponentUpdate
@@ -468,7 +705,7 @@ const BetDetailsScreen = () => {
       // Update recipients list
       setRecipients(prevRecipients => {
         return prevRecipients.map(r => {
-          if (r.id === recipientId) {
+          if (r.id === currentRecipientId) {
             return {...r, status: 'lost', pending_outcome: null};
           } else if (opponentId && r.id === opponentId) {
             return {...r, status: 'won', pending_outcome: null};
@@ -491,15 +728,114 @@ const BetDetailsScreen = () => {
       );
       
     } catch (error) {
+      console.error("Error declaring loss:", error);
       Alert.alert("Error", "An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);
     }
   };
   
+  // Helper function to declare final outcome when only bet ID is available (direct declaration)
+  const declareFinalOutcome = async (betId: string, outcome: string, timestamp: string) => {
+    try {
+      console.log(`Declaring final ${outcome} outcome for bet ${betId}`);
+      
+      // Get all recipients for this bet
+      const { data: recipients, error: recipientsError } = await supabase
+        .from('bet_recipients')
+        .select('id, recipient_id')
+        .eq('bet_id', betId);
+        
+      if (recipientsError || !recipients || recipients.length === 0) {
+        console.error("Could not find recipients for this bet:", recipientsError);
+        throw new Error("Could not find recipients for this bet");
+      }
+      
+      // If we're the creator, we need to find our own recipient record vs others
+      const { data: bet, error: betError } = await supabase
+        .from('bets')
+        .select('creator_id')
+        .eq('id', betId)
+        .single();
+        
+      if (betError) {
+        console.error("Could not fetch bet details:", betError);
+        throw new Error("Could not fetch bet details");
+      }
+      
+      const isCreator = bet.creator_id === user?.id;
+      console.log(`User is creator of this bet: ${isCreator}`);
+      
+      // Update the bet's status directly as well
+      const { error: betUpdateError } = await supabase
+        .from('bets')
+        .update({ status: 'completed' })
+        .eq('id', betId);
+        
+      if (betUpdateError) {
+        console.error("Could not update bet status:", betUpdateError);
+      }
+      
+      // If there's only one recipient, update it
+      if (recipients.length === 1) {
+        console.log("Single recipient case - updating with final status");
+        // For direct declaration, we set the status directly (not pending)
+        const recipientUpdate = {
+          status: isCreator ? (outcome === 'won' ? 'lost' : 'won') : outcome, // Creator declares opposite for recipient
+          pending_outcome: null,
+          outcome_claimed_by: user?.id,
+          outcome_claimed_at: timestamp
+        };
+        
+        const { error: updateError } = await supabase
+          .from('bet_recipients')
+          .update(recipientUpdate)
+          .eq('id', recipients[0].id);
+          
+        if (updateError) {
+          console.error("Error updating recipient:", updateError);
+        }
+        
+        return;
+      }
+      
+      // If there are multiple recipients, we need to determine which ones to update
+      console.log(`Multiple recipients case (${recipients.length}) - updating all with final status`);
+      for (const recipient of recipients) {
+        // If creator is declaring, all recipients get the opposite outcome
+        // If not creator (unlikely), outcome depends on if it's our record
+        const isMyRecord = isCreator ? false : recipient.recipient_id === user?.id;
+        const finalStatus = isCreator ? 
+          (outcome === 'won' ? 'lost' : 'won') : // Creator declares opposite for recipients
+          (isMyRecord ? outcome : (outcome === 'won' ? 'lost' : 'won')); // Non-creator case
+          
+        const update = {
+          status: finalStatus,
+          pending_outcome: null,
+          outcome_claimed_by: user?.id,
+          outcome_claimed_at: timestamp
+        };
+        
+        console.log(`Updating recipient ${recipient.id} with final status: ${finalStatus}`);
+        const { error: updateError } = await supabase
+          .from('bet_recipients')
+          .update(update)
+          .eq('id', recipient.id);
+          
+        if (updateError) {
+          console.error(`Error updating recipient ${recipient.id}:`, updateError);
+        }
+      }
+      
+    } catch (error) {
+      console.error("Error in declareFinalOutcome:", error);
+      throw error;
+    }
+  };
+
   // Handle confirming a pending outcome
   const handleConfirmOutcome = async () => {
-    if (!recipientId || !opponentPendingOutcome) {
+    if (!opponentPendingOutcome) {
       Alert.alert("Error", "No outcome to confirm");
       return;
     }
@@ -511,11 +847,37 @@ const BetDetailsScreen = () => {
       const myFinalStatus = opponentPendingOutcome === 'won' ? 'lost' : 'won';
       const opponentFinalStatus = opponentPendingOutcome;
       
-      // Find opponent
-      const { betId, opponentId } = await findOpponent(recipientId);
+      // Handle cases where recipientId might not be available
+      let currentRecipientId = recipientId;
+      
+      if (!currentRecipientId) {
+        // If no recipientId is available but we have recipients, use the first one
+        if (recipients && recipients.length > 0) {
+          currentRecipientId = recipients[0].id;
+          console.log("Using first recipient ID:", currentRecipientId);
+        } else {
+          Alert.alert("Error", "No recipient ID available");
+          setLoading(false);
+          return;
+        }
+      }
+      
+      // Find opponent using the recipient ID
+      const { betId: foundBetId, opponentId } = await findOpponent(currentRecipientId);
+      
+      // Ensure we have a valid bet ID
+      const currentBetId = foundBetId || betId;
+      
+      if (!currentBetId) {
+        Alert.alert("Error", "Invalid bet ID");
+        setLoading(false);
+        return;
+      }
       
       if (!opponentId) {
-        throw new Error("No opponent found to confirm outcome with");
+        Alert.alert("Error", "No opponent found to confirm outcome with");
+        setLoading(false);
+        return;
       }
       
       // Prepare updates
@@ -531,7 +893,7 @@ const BetDetailsScreen = () => {
       
       // Update statuses
       await updateRecipientStatuses(
-        recipientId, 
+        currentRecipientId, 
         recipientUpdate, 
         opponentId, 
         opponentUpdate
@@ -546,7 +908,7 @@ const BetDetailsScreen = () => {
       // Update recipients list
       setRecipients(prevRecipients => {
         return prevRecipients.map(r => {
-          if (r.id === recipientId) {
+          if (r.id === currentRecipientId) {
             return {...r, status: myFinalStatus, pending_outcome: null};
           } else if (opponentId && r.id === opponentId) {
             return {...r, status: opponentFinalStatus, pending_outcome: null};
@@ -569,7 +931,7 @@ const BetDetailsScreen = () => {
       );
       
     } catch (error) {
-      console.error("❌ Unexpected error in handleConfirmOutcome:", error);
+      console.error("Error confirming outcome:", error);
       Alert.alert("Error", "An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);
@@ -578,7 +940,7 @@ const BetDetailsScreen = () => {
 
   // Handle rejecting a pending outcome
   const handleRejectOutcome = async () => {
-    if (!recipientId || !opponentPendingOutcome) {
+    if (!opponentPendingOutcome) {
       Alert.alert("Error", "No outcome to reject");
       return;
     }
@@ -586,11 +948,37 @@ const BetDetailsScreen = () => {
     try {
       setLoading(true);
       
-      // Find opponent
-      const { betId, opponentId } = await findOpponent(recipientId);
+      // Handle cases where recipientId might not be available
+      let currentRecipientId = recipientId;
+      
+      if (!currentRecipientId) {
+        // If no recipientId is available but we have recipients, use the first one
+        if (recipients && recipients.length > 0) {
+          currentRecipientId = recipients[0].id;
+          console.log("Using first recipient ID:", currentRecipientId);
+        } else {
+          Alert.alert("Error", "No recipient ID available");
+          setLoading(false);
+          return;
+        }
+      }
+      
+      // Find opponent using the recipient ID
+      const { betId: foundBetId, opponentId } = await findOpponent(currentRecipientId);
+      
+      // Ensure we have a valid bet ID
+      const currentBetId = foundBetId || betId;
+      
+      if (!currentBetId) {
+        Alert.alert("Error", "Invalid bet ID");
+        setLoading(false);
+        return;
+      }
       
       if (!opponentId) {
-        throw new Error("No opponent found to reject outcome with");
+        Alert.alert("Error", "No opponent found to reject outcome with");
+        setLoading(false);
+        return;
       }
       
       // Prepare updates - clear pending outcomes
@@ -604,7 +992,7 @@ const BetDetailsScreen = () => {
       
       // Update statuses
       await updateRecipientStatuses(
-        recipientId, 
+        currentRecipientId, 
         recipientUpdate, 
         opponentId, 
         opponentUpdate
@@ -618,7 +1006,7 @@ const BetDetailsScreen = () => {
       // Update recipients list
       setRecipients(prevRecipients => {
         return prevRecipients.map(r => {
-          if (r.id === recipientId || (opponentId && r.id === opponentId)) {
+          if (r.id === currentRecipientId || (opponentId && r.id === opponentId)) {
             return {...r, pending_outcome: null};
           }
           return r;
@@ -631,7 +1019,7 @@ const BetDetailsScreen = () => {
       );
       
     } catch (error) {
-      console.error("❌ Unexpected error in handleRejectOutcome:", error);
+      console.error("Error rejecting outcome:", error);
       Alert.alert("Error", "An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);
@@ -709,50 +1097,102 @@ const BetDetailsScreen = () => {
     if (!recipients || recipients.length === 0) {
       return (
         <View style={styles.noRecipientContainer}>
-          <Text style={styles.noRecipientText}>No recipients for this bet</Text>
+          <Text style={styles.noRecipientText}>No participants for this bet</Text>
         </View>
       );
     }
     
-    return recipients.map((item) => {
-      // Format the recipient status for display
-      const statusText = capitalizeFirstLetter(item.status || 'pending');
+    // Prepare to render both participants
+    const participantElements = [];
+    
+    // Add Creator/Challenger - if we have bet data
+    if (bet) {
+      // Get creator data from the first recipient's creator property
+      const creatorData = recipients[0]?.creator;
       
-      // Get the correct color based on status
-      let statusColor = "#FFC107"; // Default yellow for pending
-      if (item.status === 'in_progress') statusColor = "#2196F3";
-      else if (item.status === 'won') statusColor = "#4CAF50";
-      else if (item.status === 'rejected') statusColor = "#F44336";
+      // Get creator name with better fallbacks
+      const creatorName = creatorData?.display_name || 
+                         creatorData?.username || 
+                         (bet.creator_id === user?.id ? "You (Challenger)" : `Challenger ${bet.creator_id?.slice(0, 8) || ''}`);
       
-      // Get the username from the profiles object or use recipient_id as fallback
-      const username = item.profiles?.username || `User ${item.recipient_id?.slice(0, 4) || ''}...`;
-      const firstInitial = (username.charAt(0) || 'U').toUpperCase();
+      // Get avatar initial
+      const creatorInitial = (creatorData?.display_name?.charAt(0) || 
+                             creatorData?.username?.charAt(0) || 
+                             creatorName.charAt(0) || 'C').toUpperCase();
       
-      return (
-        <View key={item.id.toString()} style={styles.recipientItem}>
-          <View style={styles.avatarContainer}>
-            <Text style={styles.avatarText}>{firstInitial}</Text>
+      // Get color based on status
+      let creatorStatusColor = "#2196F3"; // Default blue
+      
+      // Add creator element
+      participantElements.push(
+        <View key="creator" style={styles.participantItem}>
+          <View style={[styles.avatarContainer, styles.challengerAvatar]}>
+            <Text style={styles.avatarText}>{creatorInitial}</Text>
           </View>
           <View style={styles.recipientInfo}>
-            <Text style={styles.recipientName}>{username}</Text>
-            <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-              <Text style={styles.statusText}>{statusText}</Text>
+            <View style={styles.recipientNameContainer}>
+              <Text style={styles.recipientName}>{creatorName}</Text>
+              <Text style={[styles.participantLabel, styles.challengerLabel]}>Challenger</Text>
+            </View>
+            <View style={[styles.statusBadge, { backgroundColor: creatorStatusColor }]}>
+              <Text style={styles.statusText}>Creator</Text>
             </View>
           </View>
-          {bet?.creator_id === user?.id && item.status === 'pending' && (
-            <View style={styles.reminderContainer}>
-              <TouchableOpacity
-                style={styles.reminderButton}
-                onPress={() => sendReminder(item.recipient_id || '')}
-              >
-                <Ionicons name="notifications-outline" size={20} color="#007AFF" />
-                <Text style={styles.reminderText}>Remind</Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
       );
+    }
+    
+    // Add all recipients who aren't the creator
+    recipients.forEach(item => {
+      if (item.recipient_id !== bet?.creator_id) {
+        // Format the recipient status for display
+        const statusText = capitalizeFirstLetter(item.status || 'pending');
+        
+        // Get the correct color based on status
+        let statusColor = "#FFC107"; // Default yellow for pending
+        if (item.status === 'in_progress') statusColor = "#2196F3";
+        else if (item.status === 'won') statusColor = "#4CAF50";
+        else if (item.status === 'lost') statusColor = "#FF5722";
+        else if (item.status === 'rejected') statusColor = "#F44336";
+        
+        // Get the username from users data with better fallbacks
+        const displayName = item.profiles?.display_name || item.profiles?.username;
+        const username = displayName || (item.recipient_id === user?.id ? "You (Recipient)" : `User ${item.recipient_id?.slice(0, 8) || ''}`);
+        
+        // Get first initial for avatar
+        const firstInitial = (displayName?.charAt(0) || username.charAt(0) || 'U').toUpperCase();
+        
+        participantElements.push(
+          <View key={item.id.toString()} style={styles.participantItem}>
+            <View style={[styles.avatarContainer, styles.recipientAvatar]}>
+              <Text style={styles.avatarText}>{firstInitial}</Text>
+            </View>
+            <View style={styles.recipientInfo}>
+              <View style={styles.recipientNameContainer}>
+                <Text style={styles.recipientName}>{username}</Text>
+                <Text style={[styles.participantLabel, styles.recipientLabel]}>Recipient</Text>
+              </View>
+              <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+                <Text style={styles.statusText}>{statusText}</Text>
+              </View>
+            </View>
+            {bet?.creator_id === user?.id && item.status === 'pending' && (
+              <View style={styles.reminderContainer}>
+                <TouchableOpacity
+                  style={styles.reminderButton}
+                  onPress={() => sendReminder(item.recipient_id || '')}
+                >
+                  <Ionicons name="notifications-outline" size={20} color="white" />
+                  <Text style={styles.reminderText}>Remind</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        );
+      }
     });
+    
+    return participantElements;
   };
 
   const formatDate = (dateString: string) => {
@@ -798,7 +1238,7 @@ const BetDetailsScreen = () => {
   const canDeleteBet = isCreator && bet.status === 'pending';
   const canEditBet = isCreator && bet.status === 'pending';
   const canAcceptRejectBet = !isCreator && recipientStatus === 'pending';
-  const canDeclareOutcome = bet.status === 'in_progress';
+  const canDeclareOutcome = bet.status === 'in_progress' && (recipientStatus === 'in_progress' || recipientStatus === 'creator');
   const canCancelBet = isCreator && bet.status === 'in_progress';
 
   return (
@@ -969,26 +1409,6 @@ const BetDetailsScreen = () => {
           </View>
         )}
 
-        {canDeclareOutcome && (
-          <View style={styles.actionContainer}>
-            <TouchableOpacity 
-              style={styles.winButton}
-              onPress={handleDeclareWin}
-            >
-              <Ionicons name="trophy" size={20} color="white" />
-              <Text style={styles.actionButtonText}>I Won</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.loseButton}
-              onPress={handleDeclareLoss}
-            >
-              <Ionicons name="sad" size={20} color="white" />
-              <Text style={styles.actionButtonText}>I Lost</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
         {canEditBet && (
           <TouchableOpacity 
             style={styles.editButton}
@@ -1007,7 +1427,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
-    backgroundColor: '#fff',
+    backgroundColor: '#121212',
   },
   header: {
     flexDirection: 'row',
@@ -1201,7 +1621,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   actionContainerVertical: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#2A2A2A',
     padding: 16,
     borderRadius: 8,
     marginBottom: 16,
@@ -1321,18 +1741,19 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   pendingOutcomeContainer: {
-    backgroundColor: '#f9f0d9',
+    backgroundColor: '#333333',
     padding: 16,
     borderRadius: 8,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#e6d292',
+    borderColor: '#555555',
   },
   pendingOutcomeTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 12,
     textAlign: 'center',
+    color: '#FFFFFF',
   },
   pendingOutcomeButtons: {
     flexDirection: 'row',
@@ -1343,6 +1764,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 12,
     textAlign: 'center',
+    color: '#FFFFFF',
   },
   actionButtons: {
     flexDirection: 'row',
@@ -1357,7 +1779,34 @@ const styles = StyleSheet.create({
   },
   confirmButton: {
     backgroundColor: '#4caf50',
-  }
+  },
+  recipientNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  participantLabel: {
+    color: '#AAAAAA',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  participantItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  challengerAvatar: {
+    backgroundColor: '#2196F3',
+  },
+  challengerLabel: {
+    color: '#E0F7FA',
+  },
+  recipientAvatar: {
+    backgroundColor: '#6B46C1',
+  },
+  recipientLabel: {
+    color: '#F3E5F5',
+  },
 });
 
 export default BetDetailsScreen; 

@@ -357,39 +357,77 @@ export const BetProvider: React.FC<BetProviderProps> = ({ children }) => {
   // Find the opponent for a given recipient ID
   const findOpponent = async (recipientId: string) => {
     try {
-      // Get bet ID for this recipient
-      const { data: recipientData, error: recipientError } = await supabase
+      // First check if this recipient record exists
+      const { data: recipientExists, error: checkError } = await supabase
         .from('bet_recipients')
-        .select('bet_id')
+        .select('id, bet_id, recipient_id')
         .eq('id', recipientId)
         .single();
         
-      if (recipientError || !recipientData) {
-        throw new Error("Failed to get bet details");
-      }
-      
-      const betId = recipientData.bet_id;
-      
-      // Find the opponent's recipient record
-      const { data: opponentData, error: opponentError } = await supabase
-        .from('bet_recipients')
-        .select('id')
-        .eq('bet_id', betId)
-        .neq('id', recipientId);
+      if (checkError) {
+        console.log("Recipient record not found, checking if this is a bet ID...");
         
-      // Check if there are any opponents
-      if (opponentError) {
-        throw new Error("Failed to find opponent");
+        // This might be a bet ID instead of a recipient ID
+        // Let's check if it's a valid bet ID
+        const { data: betData, error: betError } = await supabase
+          .from('bets')
+          .select('id, creator_id')
+          .eq('id', recipientId)
+          .single();
+          
+        if (!betError && betData) {
+          console.log(`Valid bet ID found: ${recipientId}`);
+          // It's a valid bet ID, now find all recipients for this bet
+          const { data: recipients, error: recipientsError } = await supabase
+            .from('bet_recipients')
+            .select('id, recipient_id')
+            .eq('bet_id', recipientId);
+            
+          if (!recipientsError && recipients && recipients.length > 0) {
+            // Use the first recipient as the "opponent" for creator actions
+            const opponentId = recipients[0].id;
+            return { betId: recipientId, opponentId };
+          }
+          
+          // If we get here, it's a valid bet but no recipients - unusual case
+          return { betId: recipientId, opponentId: null };
+        }
+        
+        // If we get here, it's neither a valid recipient ID nor a valid bet ID
+        console.error("Invalid ID - not a recipient ID or bet ID:", recipientId);
+        return { betId: '', opponentId: null };
       }
       
-      if (!opponentData || opponentData.length === 0) {
+      const betId = recipientExists.bet_id;
+      
+      // Find all recipients for this bet
+      const { data: allRecipients, error: recipientsError } = await supabase
+        .from('bet_recipients')
+        .select('id, recipient_id')
+        .eq('bet_id', betId);
+        
+      if (recipientsError) {
+        console.error("Error fetching all recipients:", recipientsError);
         return { betId, opponentId: null };
       }
       
-      const opponentId = opponentData[0].id;
-      return { betId, opponentId };
+      // If the current user is the creator, use all recipients as potential opponents
+      // If the user is a recipient, find any recipient that isn't the current one
+      if (user && recipientExists.recipient_id === user.id) {
+        // User is a recipient, find another recipient as opponent
+        const opponent = allRecipients.find(r => r.id !== recipientId);
+        const opponentId = opponent ? opponent.id : null;
+        return { betId, opponentId };
+      } else {
+        // User is likely the creator, use the first recipient that isn't this one as opponent
+        const opponent = allRecipients.find(r => r.id !== recipientId);
+        const opponentId = opponent ? opponent.id : null;
+        return { betId, opponentId };
+      }
     } catch (error) {
-      throw error;
+      console.error("Unexpected error in findOpponent:", error);
+      // Return a partial result if possible to avoid complete failure
+      return { betId: '', opponentId: null };
     }
   };
 
