@@ -82,3 +82,23 @@ See the detailed schema structure in the code documentation.
 1. Fork the repository
 2. Create your feature branch
 3. Submit a pull request 
+
+## Row Level Security
+
+This application implements PostgreSQL Row Level Security (RLS) to ensure data privacy and security. The RLS policies are defined in:
+
+- `app/sql/final_rls_fix.sql`: Contains the non-recursive RLS policies that prevent infinite recursion issues while maintaining proper security boundaries.
+
+Key RLS features:
+- Users can only see their own bets or bets they are recipients of
+- Secure functions for accepting and rejecting bets with proper permission checks
+- Non-recursive policy design to prevent performance issues
+
+## Development
+
+To set up the development environment:
+
+1. Clone the repository
+2. Run `npm install` to install dependencies
+3. Configure the database connection in `.env`
+4. Run `npm run dev` to start the development server 
