@@ -322,7 +322,10 @@ const FriendsScreen = () => {
       setIsLoading(true);
       try {
         if (section === 'friends') {
-          await removeFriend(contact.id);
+          // Navigate to bet creation screen with friend pre-populated
+          navigation.navigate('IssueBet', { 
+            preselectedFriendIds: [contact.id] 
+          });
         } else {
           await addFriend(contact.id);
         }
@@ -332,23 +335,23 @@ const FriendsScreen = () => {
     };
 
     const getButtonStyle = () => {
-      if (section === 'friends') return styles.unfriendButton;
+      if (section === 'friends') return styles.createBetButton;
       return styles.addFriendButton;
     };
 
     const getButtonTextStyle = () => {
-      if (section === 'friends') return styles.unfriendButtonText;
+      if (section === 'friends') return styles.createBetButtonText;
       return styles.addFriendButtonText;
     };
 
     const getButtonText = () => {
       if (isLoading) return '';
-      if (section === 'friends') return 'Friends';
+      if (section === 'friends') return 'Create Bet';
       return 'Add Friend';
     };
 
     const getIconName = () => {
-      if (section === 'friends') return 'checkmark-circle';
+      if (section === 'friends') return 'cash-outline';
       return 'person-add-outline';
     };
 
@@ -645,6 +648,21 @@ const styles = StyleSheet.create({
   },
   buttonIcon: {
     marginRight: 6,
+  },
+  createBetButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6B46C1',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    minWidth: 110,
+    justifyContent: 'center',
+  },
+  createBetButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
   addFriendButton: {
     flexDirection: 'row',

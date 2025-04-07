@@ -9,12 +9,13 @@ import {
   Alert,
   Image,
   ActivityIndicator,
-  FlatList
+  FlatList,
+  Platform,
+  Linking
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import * as Contacts from 'expo-contacts';
 import { useAuth } from '../context/AuthContext';
 import { supabase, createUsersTable, createFriendshipsTable } from '../services/supabase';
 
@@ -40,18 +41,15 @@ interface FriendshipData {
   };
 }
 
-type TabType = 'contacts' | 'friends' | 'users';
+type TabType = 'friends' | 'users';
 
 const SelectFriendsScreen = () => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [contacts, setContacts] = useState<AppContact[]>([]);
   const [appFriends, setAppFriends] = useState<AppContact[]>([]);
   const [otherUsers, setOtherUsers] = useState<AppContact[]>([]);
-  const [activeTab, setActiveTab] = useState<TabType>('contacts');
+  const [activeTab, setActiveTab] = useState<TabType>('friends');
   const [loading, setLoading] = useState(true);
-  const [hasPermission, setHasPermission] = useState(false);
-  const [showPermissionModal, setShowPermissionModal] = useState(false);
-  const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
 
   const navigation = useNavigation<StackNavigationProp<any>>();
   const route = useRoute();
@@ -93,20 +91,6 @@ const SelectFriendsScreen = () => {
       focusListener();
     };
   }, [navigation, user?.id]);
-
-  useEffect(() => {
-    if (activeTab === 'contacts' && !hasPermission && contacts.length === 0) {
-      checkContactsPermission();
-    }
-  }, [activeTab]);
-
-  const checkContactsPermission = async () => {
-    const { status } = await Contacts.getPermissionsAsync();
-    setHasPermission(status === 'granted');
-    if (status === 'granted') {
-      loadContacts();
-    }
-  };
 
   // Mock data for when database tables don't exist
   const MOCK_FRIENDS: AppContact[] = [
@@ -178,27 +162,9 @@ const SelectFriendsScreen = () => {
           
           console.log('Friendships table created successfully:', tableResult);
           
-          // Insert a test friendship for demonstration
-          if (allUsers && allUsers.length > 0) {
-            // Find a user that's not the current user
-            const otherUser = allUsers.find(u => u.id !== user.id);
-            
-            if (otherUser) {
-              console.log('Creating test friendship with user:', otherUser.username);
-              
-              const { data: newFriendship, error: insertError } = await supabase
-                .from('friendships')
-                .insert([
-                  { user_id: user.id, friend_id: otherUser.id }
-                ]);
-                
-              if (insertError) {
-                console.error('Error creating test friendship:', insertError);
-              } else {
-                console.log('Test friendship created successfully:', newFriendship);
-              }
-            }
-          }
+          // We no longer need the test friendship code since we removed contacts functionality
+          setAppFriends([]);
+          return;
         } else {
           setAppFriends([]);
           return;
@@ -376,90 +342,30 @@ const SelectFriendsScreen = () => {
     }
   }, [activeTab]);
 
-  const requestContactsPermission = async () => {
-    try {
-      const { status } = await Contacts.requestPermissionsAsync();
-      setHasPermission(status === 'granted');
-      
-      if (status === 'granted') {
-        loadContacts();
-        setShowPermissionModal(false);
-      } else {
-        setShowPermissionModal(false);
-      }
-    } catch (error) {
-      console.error('Error requesting contacts permission:', error);
-    }
-  };
-
-  const loadContacts = async () => {
-    try {
-      const { data } = await Contacts.getContactsAsync({
-        fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers],
-      });
-
-      if (data.length > 0) {
-        const contactsList: AppContact[] = data
-          .filter(contact => contact.name && contact.phoneNumbers && contact.phoneNumbers.length > 0)
-          .map(contact => ({
-            // Ensure id is always a string
-            id: contact.id || `contact-${Math.random().toString(36).substr(2, 9)}`,
-            name: contact.name || 'Unknown',
-            phoneNumber: contact.phoneNumbers?.[0]?.number,
-            isAppUser: false,
-            isSelected: false
-          }));
-        setContacts(contactsList);
-      }
-    } catch (error) {
-      console.error('Error loading contacts:', error);
-    }
-  };
-
-  const toggleContactSelection = (id: string, section: TabType) => {
-    switch (section) {
-      case 'contacts':
-        setContacts(prev => 
-          prev.map(contact => 
-            contact.id === id ? { ...contact, isSelected: !contact.isSelected } : contact
-          )
-        );
-        break;
-      case 'friends':
-        setAppFriends(prev => 
-          prev.map(friend => 
-            friend.id === id ? { ...friend, isSelected: !friend.isSelected } : friend
-          )
-        );
-        break;
-      case 'users':
-        setOtherUsers(prev => 
-          prev.map(user => 
-            user.id === id ? { ...user, isSelected: !user.isSelected } : user
-          )
-        );
-        break;
-    }
-
-    // Update selected contacts
-    setSelectedContacts(prev => {
-      if (prev.includes(id)) {
-        return prev.filter(contactId => contactId !== id);
-      } else {
-        return [...prev, id];
-      }
-    });
-  };
-
-  const handleInvite = () => {
-    setShowPermissionModal(true);
-  };
-
-  const handleDone = () => {
+  // Updated to handle single selection
+  const selectContact = (id: string, name: string) => {
     if (params.onFriendsSelected) {
-      params.onFriendsSelected(selectedContacts);
+      params.onFriendsSelected([id]);
     }
     navigation.goBack();
+  };
+
+  // Share app via message
+  const shareViaMessage = async () => {
+    try {
+      const message = `download the BET app https://betmenow.app`;
+      const url = `sms:&body=${encodeURIComponent(message)}`;
+      
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('Error', 'SMS is not supported on this device');
+      }
+    } catch (error) {
+      console.error('Error sending SMS:', error);
+      Alert.alert('Error', 'Failed to open messages app');
+    }
   };
 
   const filteredAppFriends = searchQuery 
@@ -469,12 +375,6 @@ const SelectFriendsScreen = () => {
       )
     : appFriends;
 
-  const filteredContacts = searchQuery 
-    ? contacts.filter(contact => 
-        contact.name.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : contacts;
-
   const filteredOtherUsers = searchQuery
     ? otherUsers.filter(user =>
         user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -482,31 +382,10 @@ const SelectFriendsScreen = () => {
       )
     : otherUsers;
 
-  const renderPermissionModal = () => (
-    <View style={styles.modalOverlay}>
-      <View style={styles.modalContent}>
-        <Text style={styles.modalTitle}>"Bet" Would Like to Access Your Contacts</Text>
-        <Text style={styles.modalText}>This lets you select the friends you want to invite.</Text>
-        
-        <TouchableOpacity style={styles.modalButton} onPress={() => requestContactsPermission()}>
-          <Text style={styles.modalButtonText}>Select Contacts</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.modalButton} onPress={() => requestContactsPermission()}>
-          <Text style={styles.modalButtonText}>Allow Access to all Contacts</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.modalButtonOutline} onPress={() => setShowPermissionModal(false)}>
-          <Text style={styles.modalButtonOutlineText}>Don't Allow</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
   const ContactItem = ({ contact, section }: { contact: AppContact, section: TabType }) => (
     <TouchableOpacity 
       style={styles.contactItem} 
-      onPress={() => toggleContactSelection(contact.id, section)}
+      onPress={() => selectContact(contact.id, contact.name)}
     >
       <View style={styles.contactAvatar}>
         <Text style={styles.contactInitial}>{contact.name.charAt(0).toUpperCase()}</Text>
@@ -514,18 +393,10 @@ const SelectFriendsScreen = () => {
       <View style={styles.contactInfo}>
         <Text style={styles.contactName}>{contact.name}</Text>
         <Text style={styles.contactDetail}>
-          {section === 'contacts'
-            ? (contact.phoneNumber || '')
-            : (contact.username || contact.phoneNumber || '@' + contact.name.toLowerCase().replace(/\s/g, ''))}
+          {contact.username || contact.phoneNumber || '@' + contact.name.toLowerCase().replace(/\s/g, '')}
         </Text>
       </View>
-      <TouchableOpacity onPress={() => toggleContactSelection(contact.id, section)}>
-        <Ionicons 
-          name={contact.isSelected ? "person-add" : "person-add-outline"} 
-          size={24} 
-          color="#fff"
-        />
-      </TouchableOpacity>
+      <Ionicons name="chevron-forward" size={24} color="#666" />
     </TouchableOpacity>
   );
 
@@ -541,18 +412,8 @@ const SelectFriendsScreen = () => {
 
   const EmptyListMessage = ({ tabType }: { tabType: TabType }) => {
     let message = '';
-    let action = null;
     
     switch (tabType) {
-      case 'contacts':
-        message = 'No contacts found';
-        action = hasPermission ? null : (
-          <TouchableOpacity style={styles.inviteButton} onPress={handleInvite}>
-            <Ionicons name="person-add" size={20} color="#fff" style={styles.inviteIcon} />
-            <Text style={styles.inviteButtonText}>Access Contacts</Text>
-          </TouchableOpacity>
-        );
-        break;
       case 'friends':
         message = 'You have no friends yet';
         break;
@@ -564,10 +425,9 @@ const SelectFriendsScreen = () => {
     return (
       <View style={styles.emptyContainer}>
         <View style={styles.emptyIconContainer}>
-          <Ionicons name={tabType === 'contacts' ? 'call' : 'people'} size={64} color="#ccc" />
+          <Ionicons name="people" size={64} color="#ccc" />
         </View>
         <Text style={styles.emptyText}>{message}</Text>
-        {action}
       </View>
     );
   };
@@ -578,30 +438,6 @@ const SelectFriendsScreen = () => {
     }
 
     switch (activeTab) {
-      case 'contacts':
-        if (!hasPermission && contacts.length === 0) {
-          return (
-            <View style={styles.emptyContainer}>
-              <EmptyListMessage tabType="contacts" />
-            </View>
-          );
-        }
-        return (
-          <View style={styles.listContainer}>
-            {filteredContacts.length > 0 ? (
-              filteredContacts.map(contact => (
-                <ContactItem 
-                  key={`contact-${contact.id}`} 
-                  contact={contact} 
-                  section="contacts" 
-                />
-              ))
-            ) : (
-              <EmptyListMessage tabType="contacts" />
-            )}
-          </View>
-        );
-      
       case 'friends':
         return (
           <View style={styles.listContainer}>
@@ -644,31 +480,33 @@ const SelectFriendsScreen = () => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="chevron-back" size={28} color="white" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>To</Text>
+        <Text style={styles.headerTitle}>Select Recipient</Text>
+        <TouchableOpacity 
+          style={styles.shareButton}
+          onPress={shareViaMessage}
+        >
+          <Ionicons name="share-outline" size={20} color="#FFFFFF" style={styles.shareIcon} />
+          <Text style={styles.shareButtonText}>Invite</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.searchContainer}>
+        <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Name, @handle, Phone"
-          placeholderTextColor="#AAA"
+          placeholder="Search..."
+          placeholderTextColor="#999"
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
       </View>
 
-      <View style={styles.tabContainer}>
-        {renderTabButton('contacts', 'Contacts', 'call-outline')}
-        {renderTabButton('friends', 'Friends', 'people-outline')}
-        {renderTabButton('users', 'Users', 'globe-outline')}
+      <View style={styles.tabsContainer}>
+        {renderTabButton('friends', 'Friends', 'people')}
+        {renderTabButton('users', 'Users', 'globe')}
       </View>
 
       {renderTabContent()}
-
-      {selectedContacts.length > 0 && (
-        <TouchableOpacity style={styles.doneButton} onPress={handleDone}>
-          <Text style={styles.doneButtonText}>Done ({selectedContacts.length})</Text>
-        </TouchableOpacity>
-      )}
-
-      {showPermissionModal && renderPermissionModal()}
     </View>
   );
 };
@@ -679,223 +517,152 @@ const styles = StyleSheet.create({
     backgroundColor: '#121212',
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
     padding: 16,
-    paddingTop: 45,
-    backgroundColor: '#222',
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
+    backgroundColor: '#1A1A1A',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   backButton: {
-    marginRight: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginRight: 12,
   },
   headerTitle: {
-    color: 'white',
-    fontSize: 18,
+    color: '#FFFFFF',
+    fontSize: 20,
     fontWeight: 'bold',
+    flex: 1,
+    textAlign: 'center',
+  },
+  shareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6B46C1',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  shareIcon: {
+    marginRight: 6,
+  },
+  shareButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2A2A2A',
+    margin: 16,
+    padding: 10,
+    borderRadius: 8,
+  },
+  searchIcon: {
     marginRight: 10,
   },
   searchInput: {
     flex: 1,
-    color: 'white',
-    fontSize: 16,
     height: 40,
+    color: '#FFFFFF',
+    fontSize: 16,
   },
-  scrollView: {
+  tabsContainer: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    paddingHorizontal: 16,
+  },
+  tabButton: {
     flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#2A2A2A',
+    marginHorizontal: 4,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  activeTabButton: {
+    backgroundColor: '#3A3A3A',
+    borderColor: '#6B46C1',
+    borderWidth: 1,
+  },
+  tabButtonText: {
+    color: '#999',
+    fontSize: 14,
+    marginLeft: 6,
+  },
+  activeTabText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
   },
   listContainer: {
     flex: 1,
-  },
-  sectionHeader: {
-    color: '#999',
-    fontSize: 18,
-    fontWeight: 'bold',
-    backgroundColor: '#222',
-    padding: 10,
+    paddingHorizontal: 16,
   },
   contactItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#2A2A2A',
+    padding: 16,
+    backgroundColor: '#2A2A2A',
+    borderRadius: 12,
+    marginBottom: 8,
   },
   contactAvatar: {
-    width: 45,
-    height: 45,
-    borderRadius: 25,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#6B46C1',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 15,
+    marginRight: 16,
   },
   contactInitial: {
-    color: 'white',
     fontSize: 20,
+    color: '#FFFFFF',
     fontWeight: 'bold',
   },
   contactInfo: {
     flex: 1,
   },
   contactName: {
-    color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 4,
   },
   contactDetail: {
-    color: '#999',
     fontSize: 14,
+    color: '#AAAAAA',
+  },
+  loader: {
+    marginTop: 40,
   },
   emptyContainer: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 100,
+    justifyContent: 'center',
+    paddingTop: 40,
   },
   emptyIconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#2A2A2A',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   emptyText: {
-    color: 'white',
-    fontSize: 18,
-    marginBottom: 30,
-  },
-  inviteButton: {
-    flexDirection: 'row',
-    backgroundColor: '#6B46C1',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  inviteIcon: {
-    marginRight: 8,
-  },
-  inviteButtonText: {
-    color: 'white',
     fontSize: 16,
-    fontWeight: '600',
-  },
-  inviteButtonSmall: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    margin: 15,
-    backgroundColor: '#333',
-    borderRadius: 8,
-  },
-  inviteButtonTextSmall: {
-    color: 'white',
-    fontSize: 16,
-    marginLeft: 8,
-  },
-  doneButton: {
-    backgroundColor: '#6B46C1',
-    padding: 15,
-    margin: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  doneButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  loader: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  modalContent: {
-    width: '80%',
-    backgroundColor: '#FFF',
-    borderRadius: 10,
-    padding: 20,
-    alignItems: 'center',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  modalText: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 20,
-    color: '#555',
-  },
-  modalButton: {
-    width: '100%',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 10,
-    backgroundColor: '#6B46C1',
-  },
-  modalButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  modalButtonOutline: {
-    width: '100%',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#6B46C1',
-  },
-  modalButtonOutlineText: {
-    color: '#6B46C1',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#222',
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
-  },
-  tabButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  activeTabButton: {
-    borderBottomColor: '#6B46C1',
-  },
-  tabButtonText: {
-    color: '#999',
-    fontSize: 14,
-    fontWeight: '500',
-    marginLeft: 5,
-  },
-  activeTabText: {
-    color: '#6B46C1',
-  },
+    color: '#AAAAAA',
+    marginBottom: 24,
+  }
 });
 
 export default SelectFriendsScreen;

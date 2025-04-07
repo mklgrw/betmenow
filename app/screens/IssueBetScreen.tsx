@@ -14,7 +14,7 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
@@ -25,7 +25,7 @@ import { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
 type MainStackParamList = {
   Home: { activeTab?: 'in_progress' | 'pending' | 'lost' | 'won' };
-  IssueBet: undefined;
+  IssueBet: { preselectedFriendIds?: string[] };
   SelectFriends: { onFriendsSelected: (friendIds: string[]) => void };
 };
 
@@ -47,26 +47,49 @@ const IssueBetScreen = () => {
   const [selectedHour, setSelectedHour] = useState(8);
   const [selectedMinute, setSelectedMinute] = useState(0);
   const [selectedAmPm, setSelectedAmPm] = useState<'AM' | 'PM'>('AM');
+  const [selectedRecipientName, setSelectedRecipientName] = useState<string>('');
 
   const navigation = useNavigation<IssueBetScreenNavigationProp>();
+  const route = useRoute();
   const theme = useTheme();
   const { user } = useAuth();
 
   useEffect(() => {
-    // Check if bet_recipients table exists and create it if not
-    const initializeTables = async () => {
-      console.log('Checking if bet_recipients table exists...');
-      const { data, error } = await createBetRecipientsTable();
-      console.log('Bet recipients table check result:', data, error);
-    };
-    
-    initializeTables();
-  }, []);
+    const params = route.params as { preselectedFriendIds?: string[] } | undefined;
+    if (params?.preselectedFriendIds && params.preselectedFriendIds.length > 0) {
+      console.log('Preselected friends received:', params.preselectedFriendIds);
+      setSelectedFriendIds(params.preselectedFriendIds);
+      
+      const fetchFriendDetails = async () => {
+        try {
+          const friendId = params.preselectedFriendIds[0];
+          if (!friendId) return;
+          
+          const { data, error } = await supabase
+            .from('users')
+            .select('display_name, username')
+            .eq('id', friendId)
+            .single();
+            
+          if (error) {
+            console.error('Error fetching friend details:', error);
+          } else if (data) {
+            setSelectedRecipientName(data.display_name || data.username || 'User');
+          }
+        } catch (e) {
+          console.error('Exception fetching friend details:', e);
+        }
+      };
+      
+      fetchFriendDetails();
+    }
+  }, [route.params]);
 
   useEffect(() => {
     const fetchSelectedFriendDetails = async () => {
       if (selectedFriendIds.length === 0) {
         setSelectedFriends([]);
+        setSelectedRecipientName('');
         return;
       }
       
@@ -82,6 +105,11 @@ const IssueBetScreen = () => {
         }
         
         setSelectedFriends(data || []);
+        
+        if (data && data.length > 0) {
+          const friend = data[0];
+          setSelectedRecipientName(friend.display_name || friend.username || friend.email?.split('@')[0] || 'User');
+        }
       } catch (e) {
         console.error('Exception fetching friend details:', e);
       }
@@ -89,6 +117,17 @@ const IssueBetScreen = () => {
     
     fetchSelectedFriendDetails();
   }, [selectedFriendIds]);
+
+  useEffect(() => {
+    // Check if bet_recipients table exists and create it if not
+    const initializeTables = async () => {
+      console.log('Checking if bet_recipients table exists...');
+      const { data, error } = await createBetRecipientsTable();
+      console.log('Bet recipients table check result:', data, error);
+    };
+    
+    initializeTables();
+  }, []);
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', {
@@ -193,8 +232,7 @@ const IssueBetScreen = () => {
     }
   };
 
-  const handleSelectFriends = () => {
-    // Navigate to friends selection screen
+  const selectRecipient = () => {
     navigation.navigate('SelectFriends', {
       onFriendsSelected: (friendIds: string[]) => {
         setSelectedFriendIds(friendIds);
@@ -651,32 +689,18 @@ const IssueBetScreen = () => {
             <Text style={styles.sectionLabel}>Recipient</Text>
             <TouchableOpacity
               style={styles.selectFriendsButton}
-              onPress={handleSelectFriends}
+              onPress={selectRecipient}
             >
               <View style={styles.selectFriendsLeftContent}>
                 <View style={styles.iconContainer}>
-                  <Ionicons name="people-outline" size={20} color="white" />
+                  <Ionicons name="person-outline" size={20} color="white" />
                 </View>
                 <Text style={styles.selectFriendsText}>
-                  {selectedFriendIds.length > 0 
-                    ? `${selectedFriendIds.length} friends selected` 
-                    : 'Select friends to bet with'}
+                  {selectedRecipientName ? selectedRecipientName : 'Select a recipient for your bet'}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#777" />
             </TouchableOpacity>
-            
-            {selectedFriends.length > 0 && (
-              <View style={styles.selectedFriendsContainer}>
-                {selectedFriends.map(friend => (
-                  <View key={friend.id} style={styles.selectedFriendChip}>
-                    <Text style={styles.selectedFriendName}>
-                      {friend.display_name || friend.username || friend.email?.split('@')[0] || 'User'}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            )}
           </View>
 
           <View style={styles.section}>
@@ -848,25 +872,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     flex: 1,
-  },
-  selectedFriendsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 12,
-  },
-  selectedFriendChip: {
-    backgroundColor: 'rgba(107, 70, 193, 0.3)',
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    margin: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(107, 70, 193, 0.5)',
-  },
-  selectedFriendName: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '500',
   },
   buttonWrapper: {
     paddingHorizontal: 20,
