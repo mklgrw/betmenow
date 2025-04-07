@@ -9,6 +9,13 @@ type Friend = {
   avatarUrl?: string;
 };
 
+type FriendshipData = {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+};
+
 type FriendsContextType = {
   friends: Friend[];
   isFriend: (userId: string) => boolean;
@@ -38,32 +45,47 @@ export const FriendsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     
     try {
       setLoading(true);
-      
-      // Get all friend relationships for the current user
+
+      // First get the friend IDs
       const { data: friendships, error: friendshipsError } = await supabase
         .from('friendships')
-        .select(`
-          friend_id,
-          users!friendships_friend_id_fkey (
-            id,
-            username,
-            display_name,
-            avatar_url
-          )
-        `)
+        .select('friend_id')
         .eq('user_id', user.id);
 
       if (friendshipsError) {
-        console.error('Error fetching friends:', friendshipsError);
+        console.error('Error fetching friendships:', friendshipsError);
+        return;
+      }
+
+      if (!friendships || friendships.length === 0) {
+        setFriends([]);
+        return;
+      }
+
+      // Then get the friend details
+      const friendIds = friendships.map(f => f.friend_id);
+      const { data: friendData, error } = await supabase
+        .from('users')
+        .select('id, username, display_name, avatar_url')
+        .in('id', friendIds)
+        .returns<FriendshipData[]>();
+
+      if (error) {
+        console.error('Error fetching friends:', error);
+        return;
+      }
+
+      if (!friendData) {
+        setFriends([]);
         return;
       }
 
       // Transform the data to match our Friend type
-      const friendsList = friendships.map(friendship => ({
-        id: friendship.friend_id,
-        username: friendship.users.username,
-        display_name: friendship.users.display_name,
-        avatarUrl: friendship.users.avatar_url
+      const friendsList = friendData.map(friend => ({
+        id: friend.id,
+        username: friend.username || '',
+        display_name: friend.display_name || undefined,
+        avatarUrl: friend.avatar_url || undefined
       }));
 
       setFriends(friendsList);
@@ -80,18 +102,26 @@ export const FriendsProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const addFriend = async (friendId: string) => {
     if (!user) return;
+    if (friendId === user.id) {
+      console.error('Cannot add yourself as a friend');
+      return;
+    }
     
     try {
-      // Add friendship record
+      // Add friendship record - let the RLS policy handle the permission
       const { error } = await supabase
         .from('friendships')
-        .insert([
-          { user_id: user.id, friend_id: friendId },
-          { user_id: friendId, friend_id: user.id } // Reciprocal friendship
-        ]);
+        .insert({
+          user_id: user.id,
+          friend_id: friendId
+        });
 
       if (error) {
-        console.error('Error adding friend:', error);
+        if (error.code === '23505') { // Unique violation error code
+          console.log('Friendship already exists');
+        } else {
+          console.error('Error adding friend:', error);
+        }
         return;
       }
 
@@ -109,7 +139,8 @@ export const FriendsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const { error } = await supabase
         .from('friendships')
         .delete()
-        .or(`and(user_id.eq.${user.id},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${user.id})`);
+        .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`)
+        .or(`user_id.eq.${friendId},friend_id.eq.${friendId}`);
 
       if (error) {
         console.error('Error removing friend:', error);

@@ -452,82 +452,84 @@ const DashboardScreen = () => {
     }
   }, [userId, isCurrentUser]);
 
-  const renderStatCard = (title: string, value: number | string, icon: string, bgColors: [string, string], textColor: string = '#FFFFFF') => (
-    <LinearGradient
-      colors={bgColors}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.statCard}
-    >
+  const renderStatCard = (title: string, value: number | string, icon: string, bgColor: string, textColor: string = '#FFFFFF') => (
+    <View style={[styles.statCard, { backgroundColor: bgColor }]}>
       <View style={styles.statIconContainer}>
         <Ionicons name={icon as any} size={24} color={textColor} />
       </View>
       <View style={styles.statContent}>
         <Text style={[styles.statValue, { color: textColor }]}>{value}</Text>
-        <Text style={[styles.statTitle, { color: textColor }]}>{title}</Text>
+        <Text style={[styles.statLabel, { color: textColor }]}>{title}</Text>
       </View>
-    </LinearGradient>
+    </View>
   );
 
-  // Helper function to update the color array typing in the view code
-  const toGradientColors = (colors: string[]): [string, string] => {
-    return [colors[0] || '#000', colors[1] || '#000'];
-  };
-  
-  // Render profile section with avatar and name
   const renderProfileSection = () => {
     if (isProfileLoading) {
       return (
         <View style={styles.profileLoadingContainer}>
-          <ActivityIndicator size="small" color={theme.colors.primary} />
+          <ActivityIndicator size="large" color="#6B46C1" />
         </View>
       );
     }
-    
+
     if (!userProfile) {
       return (
-        <View style={styles.profileSection}>
-          <View style={styles.profilePlaceholder}>
-            <Text style={styles.profilePlaceholderText}>Profile not found</Text>
-          </View>
+        <View style={styles.profileErrorContainer}>
+          <Ionicons name="alert-circle" size={48} color="#666" />
+          <Text style={styles.profileErrorText}>Profile not found</Text>
         </View>
       );
     }
-    
+
     return (
-      <View style={styles.profileSection}>
-        <View style={styles.profileAvatar}>
-          {userProfile.avatarUrl ? (
-            <Image 
-              source={{ uri: userProfile.avatarUrl }} 
-              style={styles.avatarImage} 
-            />
+      <View style={styles.profileContainer}>
+        <View style={styles.profileHeader}>
+          <View style={styles.avatarContainer}>
+            {userProfile.avatarUrl ? (
+              <Image source={{ uri: userProfile.avatarUrl }} style={styles.avatarImage} />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarText}>
+                  {(userProfile.display_name || userProfile.username || '?')[0].toUpperCase()}
+                </Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.profileInfo}>
+            <Text style={styles.profileName}>
+              {userProfile.display_name || userProfile.username}
+              {isCurrentUser && <Text style={styles.profileYouText}> (You)</Text>}
+            </Text>
+            <Text style={styles.username}>@{userProfile.username}</Text>
+          </View>
+          {isCurrentUser ? (
+            <TouchableOpacity 
+              style={styles.editButton}
+              onPress={() => navigation.navigate('EditProfile')}
+            >
+              <Ionicons name="pencil" size={18} color="#FFF" />
+              <Text style={styles.editButtonText}>Edit</Text>
+            </TouchableOpacity>
           ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarText}>
-                {(userProfile.display_name || userProfile.username || '?')[0].toUpperCase()}
+            <TouchableOpacity
+              style={[
+                styles.friendButton,
+                isFriend(userId) && styles.friendButtonActive
+              ]}
+              onPress={() => isFriend(userId) ? removeFriend(userId) : addFriend(userId)}
+            >
+              <Ionicons 
+                name={isFriend(userId) ? "checkmark-circle" : "person-add"} 
+                size={18} 
+                color="#FFF" 
+              />
+              <Text style={styles.friendButtonText}>
+                {isFriend(userId) ? "Friends" : "Add Friend"}
               </Text>
-            </View>
+            </TouchableOpacity>
           )}
         </View>
-        
-        <View style={styles.profileInfo}>
-          <Text style={styles.profileName}>
-            {userProfile.display_name || userProfile.username}
-            {isCurrentUser && <Text style={styles.profileYouText}> (You)</Text>}
-          </Text>
-          <Text style={styles.profileUsername}>@{userProfile.username}</Text>
-        </View>
-        
-        {isCurrentUser && (
-          <TouchableOpacity 
-            style={styles.editProfileButton}
-            onPress={() => navigation.navigate('EditProfile')}
-          >
-            <Ionicons name="pencil" size={16} color="#FFFFFF" />
-            <Text style={styles.editProfileText}>Edit</Text>
-          </TouchableOpacity>
-        )}
       </View>
     );
   };
@@ -561,28 +563,6 @@ const DashboardScreen = () => {
           )}
         </View>
       </TouchableOpacity>
-    );
-  };
-
-  const renderSocialHeader = () => {
-    if (isCurrentUser) return null;
-
-    return (
-      <View style={styles.socialHeader}>
-        <TouchableOpacity
-          style={styles.friendButton}
-          onPress={() => isFriend(userId) ? removeFriend(userId) : addFriend(userId)}
-        >
-          <Ionicons 
-            name={isFriend(userId) ? "person-remove" : "person-add"} 
-            size={20} 
-            color="#FFFFFF" 
-          />
-          <Text style={styles.friendButtonText}>
-            {isFriend(userId) ? "Friends" : "Add Friend"}
-          </Text>
-        </TouchableOpacity>
-      </View>
     );
   };
 
@@ -626,83 +606,131 @@ const DashboardScreen = () => {
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+          <Ionicons name="arrow-back" size={24} color="#FFF" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{isCurrentUser ? 'Your Profile' : 'User Profile'}</Text>
-        <View style={styles.placeholderButton} />
+        <Text style={styles.headerTitle}>
+          {isCurrentUser ? 'Your Profile' : 'User Profile'}
+        </Text>
+        <View style={styles.headerRight} />
       </View>
 
-      <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.contentContainer}>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {renderProfileSection()}
-        {renderSocialHeader()}
-        
-        <View style={styles.divider} />
-        
-        <View style={styles.sectionHeader}>
+
+        <View style={styles.statsSection}>
           <Text style={styles.sectionTitle}>Bet Performance</Text>
-        </View>
-        
-        <View style={styles.statsRow}>
-          {renderStatCard('Bets Won', statistics.totalWon, 'trophy-outline', toGradientColors(['#4CAF50', '#2E7D32']))}
-          {renderStatCard('Bets Lost', statistics.totalLost, 'close-circle-outline', toGradientColors(['#F44336', '#C62828']))}
-        </View>
-        
-        <View style={styles.statsRow}>
-          {renderStatCard('In Progress', statistics.totalInProgress, 'hourglass-outline', toGradientColors(['#6B46C1', '#4527A0']))}
-          {renderStatCard('Pending', statistics.totalPending, 'time-outline', toGradientColors(['#FF9800', '#EF6C00']))}
+          <View style={styles.statsGrid}>
+            {renderStatCard(
+              'Bets Won',
+              statistics.totalWon,
+              'trophy',
+              '#10B981',
+            )}
+            {renderStatCard(
+              'Bets Lost',
+              statistics.totalLost,
+              'close-circle',
+              '#EF4444',
+            )}
+            {renderStatCard(
+              'In Progress',
+              statistics.totalInProgress,
+              'time',
+              '#6B46C1',
+            )}
+            {renderStatCard(
+              'Pending',
+              statistics.totalPending,
+              'hourglass',
+              '#F59E0B',
+            )}
+          </View>
         </View>
 
-        <View style={styles.sectionHeader}>
+        <View style={styles.financialSection}>
           <Text style={styles.sectionTitle}>Financial Summary</Text>
-        </View>
-        
-        <View style={styles.statsRow}>
-          {renderStatCard('Stake Won', `$${statistics.stakeWon.toFixed(2)}`, 'trending-up-outline', toGradientColors(['#00BCD4', '#0097A7']))}
-          {renderStatCard('Stake Lost', `$${statistics.stakeLost.toFixed(2)}`, 'trending-down-outline', toGradientColors(['#FF5722', '#D84315']))}
-        </View>
-        
-        <View style={styles.totalSection}>
-          <LinearGradient
-            colors={toGradientColors(['#333333', '#222222'])}
-            style={styles.totalCard}
-          >
-            <Text style={styles.totalLabel}>Net Winnings</Text>
+          <View style={styles.financeCards}>
+            <View style={[styles.financeCard, { backgroundColor: '#10B981' }]}>
+              <View style={styles.financeIconContainer}>
+                <Ionicons name="trending-up" size={24} color="#FFF" />
+              </View>
+              <Text style={styles.financeLabel}>Stake Won</Text>
+              <Text style={styles.financeValue}>${statistics.stakeWon.toFixed(2)}</Text>
+            </View>
+            <View style={[styles.financeCard, { backgroundColor: '#EF4444' }]}>
+              <View style={styles.financeIconContainer}>
+                <Ionicons name="trending-down" size={24} color="#FFF" />
+              </View>
+              <Text style={styles.financeLabel}>Stake Lost</Text>
+              <Text style={styles.financeValue}>${statistics.stakeLost.toFixed(2)}</Text>
+            </View>
+          </View>
+
+          <View style={styles.netWinningsCard}>
+            <Text style={styles.netWinningsLabel}>Net Winnings</Text>
             <Text style={[
-              styles.totalValue,
-              { color: statistics.stakeWon - statistics.stakeLost >= 0 ? '#4CAF50' : '#F44336' }
+              styles.netWinningsValue,
+              { color: statistics.stakeWon - statistics.stakeLost >= 0 ? '#10B981' : '#EF4444' }
             ]}>
               ${(statistics.stakeWon - statistics.stakeLost).toFixed(2)}
             </Text>
-          </LinearGradient>
+          </View>
         </View>
 
         {!isCurrentUser && (
-          <>
-            {renderTabs()}
+          <View style={styles.activitySection}>
+            <View style={styles.tabsContainer}>
+              <TouchableOpacity
+                style={[styles.tab, selectedTab === 'feed' && styles.activeTab]}
+                onPress={() => setSelectedTab('feed')}
+              >
+                <Text style={[styles.tabText, selectedTab === 'feed' && styles.activeTabText]}>
+                  Feed
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.tab, selectedTab === 'between' && styles.activeTab]}
+                onPress={() => setSelectedTab('between')}
+              >
+                <Text style={[styles.tabText, selectedTab === 'between' && styles.activeTabText]}>
+                  Between You
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <FlatList
               data={selectedTab === 'feed' ? betActivities : betweenActivities}
-              renderItem={renderItem}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.activityCard}
+                  onPress={() => item.betId && navigation.navigate('BetDetails', { betId: item.betId })}
+                >
+                  <View style={styles.activityHeader}>
+                    <Text style={styles.activityDescription}>{item.description}</Text>
+                    <Text style={styles.activityAmount}>${item.amount}</Text>
+                  </View>
+                  <View style={styles.activityFooter}>
+                    <Text style={styles.activityTime}>
+                      {formatDistanceToNow(new Date(item.timestamp), { addSuffix: true })}
+                    </Text>
+                    <View style={[styles.activityStatus, { backgroundColor: item.status === 'won' ? '#10B981' : '#6B46C1' }]}>
+                      <Text style={styles.activityStatusText}>{item.status}</Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              )}
               keyExtractor={item => item.id}
-              style={styles.activitiesList}
-              contentContainerStyle={styles.activitiesContent}
+              contentContainerStyle={styles.activitiesList}
               ListEmptyComponent={
                 <View style={styles.emptyState}>
+                  <Ionicons name="document-text-outline" size={48} color="#666" />
                   <Text style={styles.emptyStateText}>
                     {selectedTab === 'feed' ? 'No activities to show' : 'No bets between you'}
                   </Text>
                 </View>
               }
             />
-          </>
-        )}
-
-        {isCurrentUser && (
-          <TouchableOpacity
-            style={styles.viewAllButton}
-            onPress={() => navigation.navigate('Home')}
-          >
-            <Text style={styles.viewAllButtonText}>View All Bets</Text>
-          </TouchableOpacity>
+          </View>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -720,50 +748,36 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 15,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#1A1A1A',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#FFF',
   },
   backButton: {
     padding: 8,
   },
-  placeholderButton: {
+  headerRight: {
     width: 40,
   },
-  headerTitle: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  scrollContainer: {
+  content: {
     flex: 1,
   },
-  contentContainer: {
+  profileContainer: {
     padding: 16,
+    backgroundColor: '#1A1A1A',
+    marginBottom: 16,
   },
-  profileSection: {
+  profileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
-    paddingVertical: 12,
   },
-  profileLoadingContainer: {
-    height: 100,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  profilePlaceholder: {
-    width: '100%',
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  profilePlaceholderText: {
-    color: '#999',
-    fontSize: 16,
-  },
-  profileAvatar: {
+  avatarContainer: {
     marginRight: 16,
   },
   avatarImage: {
@@ -780,131 +794,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   avatarText: {
-    color: '#FFFFFF',
+    color: '#FFF',
     fontSize: 32,
-    fontWeight: 'bold',
+    fontWeight: '600',
   },
   profileInfo: {
     flex: 1,
   },
   profileName: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  profileYouText: {
-    fontStyle: 'italic',
-    fontWeight: 'normal',
-    fontSize: 16,
-    opacity: 0.8,
-  },
-  profileUsername: {
-    color: '#AAAAAA',
-    fontSize: 14,
-  },
-  editProfileButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#6B46C1',
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
-  editProfileText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    marginLeft: 4,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#333333',
-    marginBottom: 20,
-  },
-  sectionHeader: {
-    marginVertical: 12,
-  },
-  sectionTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: '600',
-    marginBottom: 8,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  statCard: {
-    width: '48%',
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  statIconContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  statContent: {
-    flex: 1,
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    color: '#FFF',
     marginBottom: 4,
   },
-  statTitle: {
-    fontSize: 14,
-    opacity: 0.9,
-  },
-  totalSection: {
-    marginTop: 8,
-    marginBottom: 20,
-  },
-  totalCard: {
-    borderRadius: 12,
-    padding: 20,
-    alignItems: 'center',
-  },
-  totalLabel: {
-    color: '#FFFFFF',
+  username: {
     fontSize: 16,
-    marginBottom: 8,
+    color: '#999',
   },
-  totalValue: {
-    fontSize: 28,
-    fontWeight: 'bold',
-  },
-  viewAllButton: {
-    backgroundColor: '#6B46C1',
-    borderRadius: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 20,
-  },
-  viewAllButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  socialHeader: {
+  editButton: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 16,
-    marginBottom: 8,
+    alignItems: 'center',
+    backgroundColor: '#6B46C1',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+  },
+  editButtonText: {
+    color: '#FFF',
+    marginLeft: 8,
+    fontSize: 16,
+    fontWeight: '500',
   },
   friendButton: {
     flexDirection: 'row',
@@ -914,17 +833,111 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 20,
   },
+  friendButtonActive: {
+    backgroundColor: '#4A5568',
+  },
   friendButtonText: {
-    color: '#FFFFFF',
+    color: '#FFF',
+    marginLeft: 8,
     fontSize: 16,
     fontWeight: '500',
-    marginLeft: 8,
+  },
+  statsSection: {
+    padding: 16,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#FFF',
+    marginBottom: 16,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  statCard: {
+    width: '48%',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 16,
+  },
+  statIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  statContent: {
+    flex: 1,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 14,
+    opacity: 0.9,
+  },
+  financialSection: {
+    padding: 16,
+  },
+  financeCards: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  financeCard: {
+    width: '48%',
+    padding: 16,
+    borderRadius: 16,
+  },
+  financeIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  financeLabel: {
+    fontSize: 14,
+    color: '#FFF',
+    opacity: 0.9,
+    marginBottom: 4,
+  },
+  financeValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#FFF',
+  },
+  netWinningsCard: {
+    backgroundColor: '#2D3748',
+    padding: 20,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  netWinningsLabel: {
+    fontSize: 16,
+    color: '#FFF',
+    marginBottom: 8,
+  },
+  netWinningsValue: {
+    fontSize: 32,
+    fontWeight: '700',
+  },
+  activitySection: {
+    flex: 1,
+    padding: 16,
   },
   tabsContainer: {
     flexDirection: 'row',
-    marginTop: 20,
     marginBottom: 16,
-    paddingHorizontal: 16,
   },
   tab: {
     flex: 1,
@@ -937,58 +950,75 @@ const styles = StyleSheet.create({
     borderBottomColor: '#6B46C1',
   },
   tabText: {
-    color: '#888888',
     fontSize: 16,
-    fontWeight: '500',
+    color: '#999',
   },
   activeTabText: {
-    color: '#FFFFFF',
+    color: '#FFF',
+    fontWeight: '600',
   },
-  activitiesList: {
-    marginTop: 16,
-  },
-  activitiesContent: {
-    paddingHorizontal: 16,
-  },
-  activityItem: {
-    backgroundColor: '#2A2A2A',
-    borderRadius: 12,
+  activityCard: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
   },
-  activityContent: {
-    flex: 1,
+  activityHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
   },
   activityDescription: {
-    color: '#FFFFFF',
+    flex: 1,
     fontSize: 16,
-    marginBottom: 8,
-  },
-  activityTimestamp: {
-    color: '#888888',
-    fontSize: 14,
+    color: '#FFF',
+    marginRight: 8,
   },
   activityAmount: {
     fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: 4,
+    fontWeight: '600',
+    color: '#FFF',
   },
-  participantsContainer: {
+  activityFooter: {
     flexDirection: 'row',
-    marginTop: 4,
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  participantName: {
-    color: '#AAAAAA',
+  activityTime: {
     fontSize: 14,
-    marginLeft: 4,
+    color: '#999',
+  },
+  activityStatus: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+  },
+  activityStatusText: {
+    fontSize: 12,
+    color: '#FFF',
+    fontWeight: '500',
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 32,
+    padding: 32,
   },
   emptyStateText: {
-    color: '#888888',
     fontSize: 16,
+    color: '#999',
+    marginTop: 16,
+  },
+  profileLoadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  profileErrorContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  profileErrorText: {
+    fontSize: 16,
+    color: '#999',
+    marginTop: 16,
   },
 });
 

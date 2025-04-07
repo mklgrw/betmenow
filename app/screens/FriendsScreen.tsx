@@ -18,6 +18,7 @@ import * as Contacts from 'expo-contacts';
 import { useAuth } from '../context/AuthContext';
 import { supabase, createUsersTable, createFriendshipsTable } from '../services/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Animated } from 'react-native';
 
 type AppContact = {
   id: string;
@@ -246,55 +247,24 @@ const FriendsScreen = () => {
         Alert.alert('Error', 'You must be logged in to add friends');
         return;
       }
-      
-      // Check if friendship already exists
-      const { data: existingFriendship, error: checkError } = await supabase
-        .from('friendships')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('friend_id', friendId)
-        .maybeSingle();
-      
-      if (checkError) {
-        console.error('Error checking friendship:', checkError);
-        Alert.alert('Error', 'Failed to check existing friendship');
-        return;
-      }
-      
-      if (existingFriendship) {
-        Alert.alert('Already Friends', 'You are already friends with this user');
-        return;
-      }
-      
-      // Create new friendship
-      const { error: insertError } = await supabase
+
+      // Add friendship record
+      const { error } = await supabase
         .from('friendships')
         .insert([
           { user_id: user.id, friend_id: friendId }
         ]);
-      
-      if (insertError) {
-        console.error('Error adding friend:', insertError);
+
+      if (error) {
+        console.error('Error adding friend:', error);
         Alert.alert('Error', 'Failed to add friend');
         return;
       }
-      
-      // Create reciprocal friendship (optional, depends on your app design)
-      const { error: reciprocalError } = await supabase
-        .from('friendships')
-        .insert([
-          { user_id: friendId, friend_id: user.id }
-        ]);
-      
-      if (reciprocalError) {
-        console.error('Error adding reciprocal friendship:', reciprocalError);
-        // Not showing alert as the main friendship was created successfully
-      }
-      
+
       // Refresh lists
       await loadAppFriends();
       await loadOtherUsers();
-      
+
       Alert.alert('Success', 'Friend added successfully');
     } catch (error) {
       console.error('Error in addFriend:', error);
@@ -407,50 +377,94 @@ const FriendsScreen = () => {
   );
 
   // Render contact/user item
-  const ContactItem = ({ contact, section }: { contact: AppContact, section: TabType }) => (
-    <TouchableOpacity 
-      style={styles.contactItem} 
-      onPress={() => section === 'contacts' ? null : viewUserProfile(contact.id)}
-    >
-      <View style={styles.contactAvatar}>
-        {contact.avatarUrl ? (
-          <Image 
-            source={{ uri: contact.avatarUrl }} 
-            style={styles.avatarImage} 
-          />
-        ) : (
-          <Text style={styles.contactInitial}>{contact.name.charAt(0).toUpperCase()}</Text>
-        )}
-      </View>
-      <View style={styles.contactInfo}>
-        <Text style={styles.contactName}>{contact.name}</Text>
-        <Text style={styles.contactDetail}>
-          {section === 'contacts'
-            ? (contact.phoneNumber || '')
-            : (contact.username || '@' + contact.name.toLowerCase().replace(/\s/g, ''))}
-        </Text>
-      </View>
-      <TouchableOpacity 
-        onPress={() => section === 'contacts' 
-          ? inviteContact(contact) 
-          : section === 'friends' 
-            ? removeFriend(contact.id) 
-            : addFriend(contact.id)
+  const ContactItem = ({ contact, section }: { contact: AppContact, section: TabType }) => {
+    const [isLoading, setIsLoading] = useState(false);
+
+    const handleAction = async () => {
+      setIsLoading(true);
+      try {
+        if (section === 'contacts') {
+          await inviteContact(contact);
+        } else if (section === 'friends') {
+          await removeFriend(contact.id);
+        } else {
+          await addFriend(contact.id);
         }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    const getButtonStyle = () => {
+      if (section === 'contacts') return styles.inviteButton;
+      if (section === 'friends') return styles.unfriendButton;
+      return styles.addFriendButton;
+    };
+
+    const getButtonTextStyle = () => {
+      if (section === 'contacts') return styles.inviteButtonText;
+      if (section === 'friends') return styles.unfriendButtonText;
+      return styles.addFriendButtonText;
+    };
+
+    const getButtonText = () => {
+      if (isLoading) return '';
+      if (section === 'contacts') return 'Invite';
+      if (section === 'friends') return 'Friends';
+      return 'Add Friend';
+    };
+
+    const getIconName = () => {
+      if (section === 'contacts') return 'paper-plane-outline';
+      if (section === 'friends') return 'checkmark-circle';
+      return 'person-add-outline';
+    };
+
+    return (
+      <TouchableOpacity 
+        style={styles.contactItem} 
+        onPress={() => section === 'contacts' ? null : viewUserProfile(contact.id)}
       >
-        <Ionicons 
-          name={section === 'contacts' 
-            ? "paper-plane-outline" 
-            : section === 'friends' 
-              ? "person-remove-outline" 
-              : "person-add-outline"
-          } 
-          size={24} 
-          color="#fff"
-        />
+        <View style={styles.contactAvatar}>
+          {contact.avatarUrl ? (
+            <Image 
+              source={{ uri: contact.avatarUrl }} 
+              style={styles.avatarImage} 
+            />
+          ) : (
+            <Text style={styles.contactInitial}>{contact.name.charAt(0).toUpperCase()}</Text>
+          )}
+        </View>
+        <View style={styles.contactInfo}>
+          <Text style={styles.contactName}>{contact.name}</Text>
+          <Text style={styles.contactDetail}>
+            {section === 'contacts'
+              ? (contact.phoneNumber || '')
+              : (contact.username || '@' + contact.name.toLowerCase().replace(/\s/g, ''))}
+          </Text>
+        </View>
+        <TouchableOpacity 
+          style={[getButtonStyle(), isLoading && styles.buttonLoading]}
+          onPress={handleAction}
+          disabled={isLoading}
+        >
+          {isLoading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Ionicons 
+                name={getIconName()} 
+                size={16} 
+                color="#FFFFFF" 
+                style={styles.buttonIcon} 
+              />
+              <Text style={getButtonTextStyle()}>{getButtonText()}</Text>
+            </>
+          )}
+        </TouchableOpacity>
       </TouchableOpacity>
-    </TouchableOpacity>
-  );
+    );
+  };
 
   // Render empty list message
   const EmptyListMessage = ({ tabType }: { tabType: TabType }) => {
@@ -670,24 +684,24 @@ const styles = StyleSheet.create({
   contactItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: 16,
     backgroundColor: '#2A2A2A',
-    borderRadius: 8,
+    borderRadius: 12,
     marginBottom: 8,
   },
   contactAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#6B46C1',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 16,
   },
   avatarImage: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
   },
   contactInitial: {
     fontSize: 20,
@@ -696,6 +710,7 @@ const styles = StyleSheet.create({
   },
   contactInfo: {
     flex: 1,
+    marginRight: 12,
   },
   contactName: {
     fontSize: 16,
@@ -724,21 +739,23 @@ const styles = StyleSheet.create({
     color: '#AAAAAA',
     marginBottom: 24,
   },
-  inviteButton: {
-    flexDirection: 'row',
-    backgroundColor: '#6B46C1',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
   inviteIcon: {
     marginRight: 8,
   },
+  inviteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2E8B57',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    minWidth: 110,
+    justifyContent: 'center',
+  },
   inviteButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '600',
   },
   modalOverlay: {
     position: 'absolute',
@@ -798,6 +815,44 @@ const styles = StyleSheet.create({
   modalButtonOutlineText: {
     color: '#FFFFFF',
     fontSize: 16,
+  },
+  buttonIcon: {
+    marginRight: 6,
+  },
+  addFriendButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6B46C1',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    minWidth: 110,
+    justifyContent: 'center',
+  },
+  unfriendButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#3A3A3A',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    minWidth: 110,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#6B46C1',
+  },
+  addFriendButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  unfriendButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  buttonLoading: {
+    opacity: 0.7,
   },
 });
 
