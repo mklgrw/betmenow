@@ -15,6 +15,8 @@
       "@context/*": ["app/context/*"],
       "@services/*": ["app/services/*"],
       "@constants/*": ["app/constants/*"]
-    }
+    },
+    "module": "es2020",
+    "moduleResolution": "bundler"
   }
 } 

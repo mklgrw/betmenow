@@ -1,323 +1,287 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  FlatList,
-  SafeAreaView,
+import React, { useEffect, useState, useCallback } from 'react';
+import { 
+  View, 
+  Text, 
+  FlatList, 
+  StyleSheet, 
+  RefreshControl, 
+  SafeAreaView, 
   ActivityIndicator,
-  Alert
+  TouchableOpacity, 
+  StatusBar
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
-import { useTheme } from '../context/ThemeContext';
+import { useNavigation, useTheme } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase';
+import { formatDistanceToNow } from 'date-fns';
+import { Ionicons } from '@expo/vector-icons';
 
-// Mock data for activity feed
-const MOCK_ACTIVITIES = [
-  {
-    id: '1',
-    description: "You paid James $30 because you didn't go to the gym 3x last week 🏋️",
-    timestamp: "Jan 15 at 11:30pm",
-    likes: 7,
-    comments: 3,
-  },
-  {
-    id: '2',
-    description: "You won $50 from Mark in the basketball game 🏀",
-    timestamp: "Jan 12 at 6:45pm",
-    likes: 12,
-    comments: 5,
-  },
-  {
-    id: '3',
-    description: "Jake lost to Axel at 1v1 basketball 🏀",
-    timestamp: "Mar 25 at 7:35pm",
-    likes: 1,
-    comments: 3,
-  },
-  {
-    id: '4',
-    description: "Elliot paid you $5 because he couldn't bench 135 😅",
-    timestamp: "Mar 22 at 5:10pm",
-    likes: 10,
-    comments: 8,
-  },
-];
-
-type Activity = {
-  id: string;
-  description: string;
-  timestamp: string;
-  likes: number;
-  comments: number;
-  betId?: string;
+// Types
+type RootStackParamList = {
+  BetDetails: { betId: string, notificationId?: string };
+  IssueBet: undefined;
 };
 
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+interface Notification {
+  id: string;
+  status: string;
+  created_at: string;
+  bet_id: string;
+  recipient_id: string;
+  pending_outcome?: string | null;
+  outcome_claimed_by?: string | null;
+  outcome_claimed_at?: string | null;
+  type: string;
+  display_name: string;
+  bet_description: string;
+  bet_stake: number;
+  bet_creator_id: string;
+}
+
+interface EmptyStateProps {
+  onCreateBet: () => void;
+  theme: any;
+}
+
+interface NotificationCardProps {
+  notification: Notification;
+  onPress: (notification: Notification) => void;
+  theme: any;
+}
+
+interface HeaderProps {
+  hasNotifications: boolean;
+  onCreateBet: () => void;
+}
+
+// Helper Components
+const Header = ({ hasNotifications, onCreateBet }: HeaderProps) => (
+  <View style={styles.header}>
+    <Text style={styles.headerTitle}>Activity</Text>
+    {hasNotifications && (
+      <TouchableOpacity 
+        style={styles.headerButton}
+        onPress={onCreateBet}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="add-circle-outline" size={24} color="#FFFFFF" />
+      </TouchableOpacity>
+    )}
+  </View>
+);
+
+const EmptyState = ({ onCreateBet, theme }: EmptyStateProps) => (
+  <View style={styles.emptyContainer}>
+    <Ionicons name="notifications-off-outline" size={48} color={theme.colors.text} />
+    <Text style={[styles.emptyText, { color: theme.colors.text }]}>No notifications yet</Text>
+    <TouchableOpacity
+      style={[styles.createBetButton, { backgroundColor: theme.colors.primary }]}
+      onPress={onCreateBet}
+      activeOpacity={0.8}
+    >
+      <Text style={styles.createBetButtonText}>Create a Bet</Text>
+    </TouchableOpacity>
+  </View>
+);
+
+const getStatusIndicatorColor = (status: string, isPendingOutcome: boolean): string => {
+  if (isPendingOutcome) return '#FF9500'; // Action required orange
+  
+  switch(status) {
+    case 'pending': return '#777777'; // Gray for pending
+    case 'accepted': 
+    case 'in_progress': return '#4CAF50'; // Green for accepted/in progress
+    case 'rejected': return '#FF3B30'; // Red for rejected
+    case 'won': return '#34C759'; // iOS green for won
+    case 'lost': return '#FF2D55'; // iOS pink for lost
+    default: return '#777777'; // Default gray
+  }
+};
+
+const NotificationCard = ({ notification, onPress, theme }: NotificationCardProps) => {
+  const isPendingOutcome = notification.pending_outcome !== null;
+  const statusColor = getStatusIndicatorColor(notification.status, isPendingOutcome);
+
+  return (
+    <TouchableOpacity 
+      onPress={() => onPress(notification)}
+      activeOpacity={0.7}
+      style={styles.notificationWrapper}
+    >
+      <View style={styles.notificationItem}>
+        <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+        <View style={styles.notificationContent}>
+          <Text style={styles.notificationText} numberOfLines={2}>
+            {getNotificationText(notification)}
+          </Text>
+          <View style={styles.notificationFooter}>
+            <Text style={styles.stakeText}>Stake: ${notification.bet_stake?.toFixed(2) || "0.00"}</Text>
+            <Text style={styles.timeText}>
+              {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
+            </Text>
+          </View>
+        </View>
+        {isPendingOutcome && (
+          <View style={styles.actionBadge}>
+            <Text style={styles.actionBadgeText}>Action Required</Text>
+          </View>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+// Main Component
 const ActivityScreen = () => {
-  const navigation = useNavigation();
-  const theme = useTheme();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const { user } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [activities, setActivities] = useState<Activity[]>(MOCK_ACTIVITIES);
+  const navigation = useNavigation<NavigationProp>();
+  const theme = useTheme();
 
-  useEffect(() => {
-    if (user) {
-      fetchActivities();
-      
-      // Add a focus listener to refresh data when the screen is focused
-      const unsubscribe = navigation.addListener('focus', () => {
-        console.log('ActivityScreen focused - refreshing activities data');
-        fetchActivities();
-      });
-      
-      // Clean up the listener when the component is unmounted
-      return unsubscribe;
+  const fetchNotifications = async () => {
+    if (!user?.id) {
+      console.log('No user ID available, cannot fetch notifications.');
+      setNotifications([]);
+      setLoading(false);
+      return;
     }
-  }, [navigation, user]);
 
-  // Format timestamp for display
-  const formatTimestamp = (timestamp: string) => {
-    if (!timestamp) return "";
-    
-    const date = new Date(timestamp);
-    const now = new Date();
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    // Check if today
-    if (date.toDateString() === now.toDateString()) {
-      return `Today at ${date.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}`;
-    }
-    
-    // Check if yesterday
-    if (date.toDateString() === yesterday.toDateString()) {
-      return `Yesterday at ${date.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}`;
-    }
-    
-    // Otherwise return month and day
-    return `${date.toLocaleDateString([], {month: 'short', day: 'numeric'})} at ${date.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}`;
-  };
-
-  const fetchActivities = async () => {
     try {
+      setError(null);
       setLoading(true);
-      console.log("Starting to fetch activities, user ID:", user?.id);
-      
-      if (!user?.id) {
-        console.log("No user ID available, using mock data");
-        setActivities(MOCK_ACTIVITIES);
-        setLoading(false);
-        return;
-      }
-      
-      // Fetch bet notifications where user is creator (to see acceptance/rejection)
-      const { data: createdBetNotifications, error: createdBetError } = await supabase
-        .from('bet_recipients')
-        .select(`
-          id,
-          status,
-          created_at,
-          updated_at,
-          bet_id,
-          recipient_id,
-          bets (
-            id,
-            description,
-            stake,
-            creator_id
-          ),
-          users: recipient_id (
-            id,
-            username,
-            display_name
-          )
-        `)
-        .eq('bets.creator_id', user.id)
-        .in('status', ['in_progress', 'rejected'])
-        .order('updated_at', { ascending: false });
-        
-      if (createdBetError) {
-        console.error("Error fetching creator bet notifications:", createdBetError);
-      }
-      
-      console.log("Fetched creator bet notifications:", createdBetNotifications?.length || 0);
-      
-      // Fetch bet notifications where user is recipient (invitations & outcomes)
-      const { data: receivedBetNotifications, error: receivedBetError } = await supabase
-        .from('bet_recipients')
-        .select(`
-          id,
-          status,
-          created_at,
-          updated_at,
-          bet_id,
-          recipient_id,
-          bets (
-            id,
-            description,
-            stake,
-            creator_id
-          ),
-          users: bets.creator_id (
-            id,
-            username,
-            display_name
-          )
-        `)
-        .eq('recipient_id', user.id)
-        .order('updated_at', { ascending: false });
-        
-      if (receivedBetError) {
-        console.error("Error fetching recipient bet notifications:", receivedBetError);
-      }
-      
-      console.log("Fetched recipient bet notifications:", receivedBetNotifications?.length || 0);
-      
-      // Process notifications into activity items
-      const activityItems: Activity[] = [];
-      
-      // Process notifications for bets user created
-      if (createdBetNotifications && createdBetNotifications.length > 0) {
-        createdBetNotifications.forEach(notification => {
-          const bet = notification.bets;
-          const recipient = notification.users;
-          
-          const displayName = recipient.display_name || recipient.username || 'User';
-          let description = '';
-          
-          if (notification.status === 'in_progress') {
-            description = `${displayName} accepted your bet: "${bet.description}" for $${bet.stake} 🎉`;
-          } else if (notification.status === 'rejected') {
-            description = `${displayName} rejected your bet: "${bet.description}" for $${bet.stake} 😔`;
-          }
-          
-          if (description) {
-            activityItems.push({
-              id: notification.id,
-              description,
-              timestamp: formatTimestamp(notification.updated_at || notification.created_at),
-              likes: 0,
-              comments: 0,
-              betId: bet.id
-            });
-          }
-        });
-      }
-      
-      // Process notifications for bets user received
-      if (receivedBetNotifications && receivedBetNotifications.length > 0) {
-        receivedBetNotifications.forEach(notification => {
-          const bet = notification.bets;
-          const creator = notification.users;
-          
-          const displayName = creator.display_name || creator.username || 'User';
-          let description = '';
-          
-          if (notification.status === 'pending') {
-            description = `${displayName} invited you to a bet: "${bet.description}" for $${bet.stake} 📨`;
-          } else if (notification.status === 'in_progress') {
-            description = `You accepted ${displayName}'s bet: "${bet.description}" for $${bet.stake} 🎯`;
-          } else if (notification.status === 'rejected') {
-            description = `You rejected ${displayName}'s bet: "${bet.description}" for $${bet.stake} 👎`;
-          }
-          
-          if (description) {
-            activityItems.push({
-              id: notification.id,
-              description,
-              timestamp: formatTimestamp(notification.updated_at || notification.created_at),
-              likes: 0,
-              comments: 0,
-              betId: bet.id
-            });
-          }
-        });
-      }
-      
-      if (activityItems.length > 0) {
-        console.log(`Setting ${activityItems.length} activity items`);
-        setActivities(activityItems);
+      const { data, error } = await supabase.rpc('get_user_notifications', {
+        user_id: user.id
+      });
+
+      if (error) {
+        console.error('Error fetching notifications via RPC:', error);
+        setError('Failed to load notifications');
+        setNotifications([]);
       } else {
-        console.log("No activities found, using mock data");
-        setActivities(MOCK_ACTIVITIES);
+        setNotifications(Array.isArray(data) ? data : []);
       }
     } catch (error) {
-      console.error("Unexpected error in fetchActivities:", error);
-      Alert.alert("Error", "Failed to load activity feed");
-      setActivities(MOCK_ACTIVITIES);
+      console.error('Unexpected error fetching notifications:', error);
+      setError('Something went wrong');
+      setNotifications([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const renderActivityItem = ({ item }: { item: Activity }) => (
-    <TouchableOpacity
-      style={styles.activityCard}
-      onPress={() => item.betId 
-        ? navigation.navigate('BetDetails', { betId: item.betId })
-        : navigation.navigate('ActivityDetails', { activityId: item.id })
-      }
-    >
-      <Text style={styles.activityDescription}>{item.description}</Text>
-      <Text style={styles.activityTimestamp}>{item.timestamp}</Text>
-      <View style={styles.activityStats}>
-        <View style={styles.statItem}>
-          <Text style={styles.statText}>{item.likes} ❤️</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={styles.statText}>{item.comments} 💬</Text>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchNotifications().finally(() => setRefreshing(false));
+  }, [user]);
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [user]);
+
+  const handleNotificationPress = (notification: Notification) => {
+    if (notification.bet_id) {
+      navigation.navigate('BetDetails', { 
+        betId: notification.bet_id,
+        notificationId: notification.id
+      });
+    }
+  };
+
+  const navigateToCreateBet = () => {
+    navigation.navigate('IssueBet');
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.menuButton}>
-          <Ionicons name="menu" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Activity</Text>
-        <TouchableOpacity>
-          <Ionicons name="notifications" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-      </View>
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="#000000"
+      />
+      
+      {/* Header */}
+      <Header 
+        hasNotifications={notifications.length > 0} 
+        onCreateBet={navigateToCreateBet} 
+      />
+      
+      {/* Error Banner */}
+      {error && (
+        <View style={styles.errorBanner}>
+          <Ionicons name="alert-circle" size={16} color="#FFFFFF" />
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
 
-      {loading ? (
+      {/* Content */}
+      {loading && !refreshing ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
       ) : (
         <FlatList
-          data={activities}
-          renderItem={renderActivityItem}
+          data={notifications}
+          renderItem={({ item }) => (
+            <NotificationCard 
+              notification={item} 
+              onPress={handleNotificationPress}
+              theme={theme}
+            />
+          )}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No activity yet</Text>
-              <TouchableOpacity
-                style={styles.createBetButton}
-                onPress={() => navigation.navigate('IssueBet')}
-              >
-                <Text style={styles.createBetText}>Create a Bet</Text>
-              </TouchableOpacity>
-            </View>
+          contentContainerStyle={styles.listContainer}
+          refreshControl={
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={onRefresh}
+              tintColor="#FFFFFF"
+            />
           }
+          ListEmptyComponent={
+            <EmptyState onCreateBet={navigateToCreateBet} theme={theme} />
+          }
+          showsVerticalScrollIndicator={false}
         />
       )}
-
-      <TouchableOpacity
-        style={styles.floatingButton}
-        onPress={() => navigation.navigate('IssueBet')}
-      >
-        <Ionicons name="add" size={30} color="#FFFFFF" />
-      </TouchableOpacity>
     </SafeAreaView>
   );
+};
+
+// Helper function for notification text
+const getNotificationText = (notification: Notification): string => {
+  const isCreator = notification.type === 'creator';
+  const description = notification.bet_description || '';
+  const status = notification.status;
+  const displayName = notification.display_name || 'Someone';
+
+  if (notification.pending_outcome) {
+    return `${displayName} has declared "${notification.pending_outcome}" for bet: ${description}. Tap to confirm ✅`;
+  }
+
+  if (isCreator) {
+    if (status === 'pending') {
+      return `Waiting for ${displayName} to respond to your bet: ${description}`;
+    } else if (status === 'accepted' || status === 'in_progress') {
+      return `${displayName} accepted your bet: ${description}`;
+    } else if (status === 'rejected') {
+      return `${displayName} rejected your bet: ${description}`;
+    }
+  } else {
+    if (status === 'pending') {
+      return `${displayName} sent you a bet: ${description}`;
+    } else if (status === 'accepted' || status === 'in_progress') {
+      return `You accepted ${displayName}'s bet: ${description}`;
+    } else if (status === 'rejected') {
+      return `You rejected ${displayName}'s bet: ${description}`;
+    }
+  }
+
+  return `Notification: ${description}`;
 };
 
 const styles = StyleSheet.create({
@@ -329,89 +293,118 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 15,
-  },
-  menuButton: {
-    padding: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#222222',
   },
   headerTitle: {
-    color: '#FFFFFF',
     fontSize: 20,
     fontWeight: 'bold',
-  },
-  listContent: {
-    padding: 20,
-  },
-  activityCard: {
-    backgroundColor: '#333333',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 15,
-  },
-  activityDescription: {
     color: '#FFFFFF',
-    fontSize: 16,
-    marginBottom: 8,
   },
-  activityTimestamp: {
-    color: '#AAAAAA',
-    fontSize: 12,
-    marginBottom: 10,
+  headerButton: {
+    padding: 4,
   },
-  activityStats: {
-    flexDirection: 'row',
-  },
-  statItem: {
+  errorBanner: {
+    padding: 10,
+    margin: 10,
+    backgroundColor: '#FF3B30',
+    borderRadius: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 15,
   },
-  statText: {
+  errorText: {
     color: '#FFFFFF',
     fontSize: 14,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 30,
-  },
-  emptyText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    marginBottom: 15,
-  },
-  createBetButton: {
-    backgroundColor: '#6B46C1',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-  },
-  createBetText: {
-    color: '#FFFFFF',
-    fontWeight: '500',
-  },
-  floatingButton: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#6B46C1',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 5,
-    shadowColor: '#6B46C1',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.5,
-    shadowRadius: 5,
+    marginLeft: 8,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  listContainer: {
+    padding: 12,
+    flexGrow: 1,
+  },
+  notificationWrapper: {
+    marginBottom: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  notificationItem: {
+    backgroundColor: '#333333',
+    borderRadius: 12,
+    padding: 16,
+    paddingLeft: 12,
+    position: 'relative',
+    flexDirection: 'row',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 6,
+    marginRight: 8,
+  },
+  notificationContent: {
+    flex: 1,
+  },
+  notificationText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    marginBottom: 10,
+    lineHeight: 22,
+  },
+  notificationFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  stakeText: {
+    color: '#AAAAAA',
+    fontSize: 13,
+  },
+  timeText: {
+    color: '#777777',
+    fontSize: 13,
+  },
+  actionBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: '#FF9500',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  actionBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  emptyText: {
+    fontSize: 16,
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  createBetButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  createBetButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 
