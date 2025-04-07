@@ -19,9 +19,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase, createBetRecipientsTable, createTableWithSQL, addBetRecipients } from '../services/supabase';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
 type MainStackParamList = {
-  Home: undefined;
+  Home: { activeTab?: 'in_progress' | 'pending' | 'lost' | 'won' };
   IssueBet: undefined;
   SelectFriends: { onFriendsSelected: (friendIds: string[]) => void };
 };
@@ -110,6 +112,11 @@ const IssueBetScreen = () => {
   const handleIssueBet = async () => {
     if (!description || !stake || !dueDate) {
       Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    if (selectedFriendIds.length === 0) {
+      Alert.alert('Error', 'Please select at least one friend to bet with');
       return;
     }
 
@@ -204,22 +211,14 @@ const IssueBetScreen = () => {
     setShowTimePicker(true);
   };
 
-  const handleTimeSelect = () => {
-    const newDate = new Date(dueDate);
-    let hour = selectedHour;
-    
-    // Convert from 12-hour to 24-hour format
-    if (selectedAmPm === 'PM' && selectedHour < 12) {
-      hour += 12;
-    }
-    if (selectedAmPm === 'AM' && selectedHour === 12) {
-      hour = 0;
-    }
-    
-    newDate.setHours(hour);
-    newDate.setMinutes(selectedMinute);
-    setDueDate(newDate);
+  const handleTimeSelect = (event: DateTimePickerEvent, selectedTime?: Date) => {
     setShowTimePicker(false);
+    if (selectedTime) {
+      const newDate = new Date(dueDate);
+      newDate.setHours(selectedTime.getHours());
+      newDate.setMinutes(selectedTime.getMinutes());
+      setDueDate(newDate);
+    }
   };
 
   const renderCalendarHeader = () => {
@@ -544,24 +543,46 @@ const IssueBetScreen = () => {
   );
 
   const renderTimePicker = () => (
-    <Modal
-      transparent={true}
-      visible={showTimePicker}
-      animationType="fade"
-      onRequestClose={() => setShowTimePicker(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.timePickerContainer}>
-          {renderHourSelector()}
-          <TouchableOpacity 
-            style={styles.timePickerButton}
-            onPress={handleTimeSelect}
-          >
-            <Text style={styles.timePickerButtonText}>Done</Text>
-          </TouchableOpacity>
+    Platform.OS === 'ios' ? (
+      <Modal
+        transparent={true}
+        visible={showTimePicker}
+        animationType="fade"
+        onRequestClose={() => setShowTimePicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.timePickerContainer}>
+            <Text style={styles.timeSelectorLabel}>Choose Time</Text>
+            <View style={styles.iosPickerContainer}>
+              <DateTimePicker
+                value={dueDate}
+                mode="time"
+                display="spinner"
+                onChange={handleTimeSelect}
+                style={{ width: 250 }}
+                textColor="white"
+                themeVariant="dark"
+              />
+            </View>
+            <TouchableOpacity 
+              style={styles.timePickerButton}
+              onPress={() => setShowTimePicker(false)}
+            >
+              <Text style={styles.timePickerButtonText}>Done</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+    ) : (
+      showTimePicker && (
+        <DateTimePicker
+          value={dueDate}
+          mode="time"
+          display="default"
+          onChange={handleTimeSelect}
+        />
+      )
+    )
   );
 
   return (
@@ -617,56 +638,31 @@ const IssueBetScreen = () => {
 
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Recipient</Text>
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={[
-              styles.button,
-              recipientType === 'select' ? styles.activeButton : styles.inactiveButton
-            ]}
-            onPress={() => setRecipientType('select')}
-          >
-            <Text style={styles.buttonText}>Select</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.button,
-              recipientType === 'anyone' ? styles.activeButton : styles.inactiveButton
-            ]}
-            onPress={() => setRecipientType('anyone')}
-          >
-            <Text style={styles.buttonText}>Anyone</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={styles.selectFriendsButton}
+          onPress={handleSelectFriends}
+        >
+          <Ionicons name="people-outline" size={20} color="white" style={styles.selectFriendsIcon} />
+          <Text style={styles.selectFriendsText}>
+            {selectedFriendIds.length > 0 
+              ? `${selectedFriendIds.length} friends selected` 
+              : 'Select friends to bet with'}
+          </Text>
+          <Ionicons name="chevron-forward" size={20} color="#666" />
+        </TouchableOpacity>
+        
+        {selectedFriends.length > 0 && (
+          <View style={styles.selectedFriendsContainer}>
+            {selectedFriends.map(friend => (
+              <View key={friend.id} style={styles.selectedFriendChip}>
+                <Text style={styles.selectedFriendName}>
+                  {friend.display_name || friend.username || friend.email?.split('@')[0] || 'User'}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
-
-      {recipientType === 'select' && (
-        <View style={styles.section}>
-          <TouchableOpacity
-            style={styles.selectFriendsButton}
-            onPress={handleSelectFriends}
-          >
-            <Ionicons name="people-outline" size={20} color="white" style={styles.selectFriendsIcon} />
-            <Text style={styles.selectFriendsText}>
-              {selectedFriendIds.length > 0 
-                ? `${selectedFriendIds.length} friends selected` 
-                : 'Select friends to bet with'}
-            </Text>
-            <Ionicons name="chevron-forward" size={20} color="#666" />
-          </TouchableOpacity>
-          
-          {selectedFriends.length > 0 && (
-            <View style={styles.selectedFriendsContainer}>
-              {selectedFriends.map(friend => (
-                <View key={friend.id} style={styles.selectedFriendChip}>
-                  <Text style={styles.selectedFriendName}>
-                    {friend.display_name || friend.username || friend.email?.split('@')[0] || 'User'}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
-      )}
 
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Due Date</Text>
@@ -932,7 +928,7 @@ const styles = StyleSheet.create({
   },
   timePickerContainer: {
     width: '90%',
-    backgroundColor: '#242424',
+    backgroundColor: '#1A1A1A',
     borderRadius: 12,
     padding: 20,
     alignItems: 'center',
@@ -945,7 +941,7 @@ const styles = StyleSheet.create({
   },
   timeSelectorLabel: {
     color: 'white',
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: 'bold',
     marginBottom: 20,
   },
@@ -1047,6 +1043,11 @@ const styles = StyleSheet.create({
   selectedFriendName: {
     color: 'white',
     fontSize: 14,
+  },
+  iosPickerContainer: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 8,
+    marginBottom: 20,
   },
 });
 
