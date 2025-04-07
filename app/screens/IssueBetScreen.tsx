@@ -12,6 +12,7 @@ import {
   FlatList,
   Dimensions,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -600,82 +601,100 @@ const IssueBetScreen = () => {
         <Text style={styles.headerTitle}>Issue Bet</Text>
       </View>
 
-      <TouchableOpacity style={styles.visibilityRow} onPress={() => setIsPublic(!isPublic)}>
-        <Ionicons name="globe-outline" size={24} color="white" />
-        <Text style={styles.visibilityText}>Public</Text>
-        <Ionicons name="chevron-forward" size={24} color="#666" />
-      </TouchableOpacity>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Bet</Text>
-        <View style={styles.inputContainer}>
-          <Text style={styles.inputEmoji}>🤝</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="What's the bet?"
-            placeholderTextColor="#777"
-            value={description}
-            onChangeText={setDescription}
-            multiline
-          />
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Stake</Text>
-        <View style={styles.inputContainer}>
-          <Text style={styles.inputEmoji}>💰</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="How much $$$ is on the line?"
-            placeholderTextColor="#777"
-            value={stake}
-            onChangeText={setStake}
-            keyboardType="numeric"
-          />
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Recipient</Text>
-        <TouchableOpacity
-          style={styles.selectFriendsButton}
-          onPress={handleSelectFriends}
-        >
-          <Ionicons name="people-outline" size={20} color="white" style={styles.selectFriendsIcon} />
-          <Text style={styles.selectFriendsText}>
-            {selectedFriendIds.length > 0 
-              ? `${selectedFriendIds.length} friends selected` 
-              : 'Select friends to bet with'}
-          </Text>
-          <Ionicons name="chevron-forward" size={20} color="#666" />
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        <TouchableOpacity style={styles.visibilityCard} onPress={() => setIsPublic(!isPublic)}>
+          <View style={styles.visibilityLeftContent}>
+            <View style={styles.iconContainer}>
+              <Ionicons name="globe-outline" size={22} color="white" />
+            </View>
+            <Text style={styles.visibilityText}>Public</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={22} color="#777" />
         </TouchableOpacity>
-        
-        {selectedFriends.length > 0 && (
-          <View style={styles.selectedFriendsContainer}>
-            {selectedFriends.map(friend => (
-              <View key={friend.id} style={styles.selectedFriendChip}>
-                <Text style={styles.selectedFriendName}>
-                  {friend.display_name || friend.username || friend.email?.split('@')[0] || 'User'}
+
+        <View style={styles.formCard}>
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Bet</Text>
+            <View style={styles.inputContainer}>
+              <View style={styles.emojiContainer}>
+                <Text style={styles.inputEmoji}>🤝</Text>
+              </View>
+              <TextInput
+                style={styles.input}
+                placeholder="What's the bet?"
+                placeholderTextColor="#777"
+                value={description}
+                onChangeText={setDescription}
+                multiline
+              />
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Stake</Text>
+            <View style={styles.inputContainer}>
+              <View style={styles.emojiContainer}>
+                <Text style={styles.inputEmoji}>💰</Text>
+              </View>
+              <TextInput
+                style={styles.input}
+                placeholder="How much $$$ is on the line?"
+                placeholderTextColor="#777"
+                value={stake}
+                onChangeText={setStake}
+                keyboardType="numeric"
+              />
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Recipient</Text>
+            <TouchableOpacity
+              style={styles.selectFriendsButton}
+              onPress={handleSelectFriends}
+            >
+              <View style={styles.selectFriendsLeftContent}>
+                <View style={styles.iconContainer}>
+                  <Ionicons name="people-outline" size={20} color="white" />
+                </View>
+                <Text style={styles.selectFriendsText}>
+                  {selectedFriendIds.length > 0 
+                    ? `${selectedFriendIds.length} friends selected` 
+                    : 'Select friends to bet with'}
                 </Text>
               </View>
-            ))}
+              <Ionicons name="chevron-forward" size={20} color="#777" />
+            </TouchableOpacity>
+            
+            {selectedFriends.length > 0 && (
+              <View style={styles.selectedFriendsContainer}>
+                {selectedFriends.map(friend => (
+                  <View key={friend.id} style={styles.selectedFriendChip}>
+                    <Text style={styles.selectedFriendName}>
+                      {friend.display_name || friend.username || friend.email?.split('@')[0] || 'User'}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
-        )}
-      </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Due Date</Text>
-        <TouchableOpacity 
-          style={styles.inputContainer}
-          onPress={() => setShowDatePicker(true)}
-        >
-          <Text style={styles.inputEmoji}>📅</Text>
-          <Text style={styles.dateText}>
-            {dueDate ? formatDateTime(dueDate) : "When does the bet end?"}
-          </Text>
-        </TouchableOpacity>
-      </View>
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Due Date</Text>
+            <TouchableOpacity 
+              style={styles.inputContainer}
+              onPress={() => setShowDatePicker(true)}
+            >
+              <View style={styles.emojiContainer}>
+                <Text style={styles.inputEmoji}>📅</Text>
+              </View>
+              <Text style={styles.dateText}>
+                {dueDate ? formatDateTime(dueDate) : "When does the bet end?"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
 
       {renderDatePicker()}
       {renderTimePicker()}
@@ -686,9 +705,11 @@ const IssueBetScreen = () => {
           onPress={handleIssueBet}
           disabled={loading}
         >
-          <Text style={styles.issueButtonText}>
-            {loading ? 'Creating...' : 'Issue'}
-          </Text>
+          {loading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Text style={styles.issueButtonText}>Issue Bet</Text>
+          )}
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -699,119 +720,177 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#121212',
-    padding: 20,
+  },
+  scrollView: {
+    flex: 1,
+    paddingHorizontal: 20,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 30,
-    marginTop: 10,
+    padding: 20,
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#222',
   },
   closeButton: {
-    padding: 5,
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
     marginRight: 15,
   },
   headerTitle: {
     color: '#FFFFFF',
-    fontSize: 32,
+    fontSize: 24,
     fontWeight: 'bold',
   },
-  visibilityRow: {
+  visibilityCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
-    marginBottom: 20,
+    justifyContent: 'space-between',
+    backgroundColor: '#1E1E1E',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  visibilityLeftContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(107, 70, 193, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
   visibilityText: {
     color: '#FFFFFF',
     fontSize: 16,
-    marginLeft: 10,
-    flex: 1,
+    fontWeight: '500',
+  },
+  formCard: {
+    backgroundColor: '#1E1E1E',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,
   },
   section: {
-    marginBottom: 20,
+    marginBottom: 24,
   },
   sectionLabel: {
     color: '#FFFFFF',
-    fontSize: 18,
-    marginBottom: 10,
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+    marginLeft: 4,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E1E1E',
-    borderRadius: 8,
-    padding: 15,
+    backgroundColor: '#292929',
+    borderRadius: 12,
+    padding: 14,
     borderWidth: 1,
     borderColor: '#333',
   },
+  emojiContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
   inputEmoji: {
     fontSize: 20,
-    marginRight: 10,
   },
   input: {
     flex: 1,
     color: '#FFFFFF',
     fontSize: 16,
+    padding: 4,
   },
   dateText: {
     color: '#FFFFFF',
     fontSize: 16,
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  button: {
-    flex: 0.48,
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  activeButton: {
-    backgroundColor: '#6B46C1',
-  },
-  inactiveButton: {
-    backgroundColor: '#333',
-  },
-  buttonText: {
-    color: 'white',
-    fontWeight: '500',
-    fontSize: 16,
-  },
-  buttonWrapper: {
-    marginTop: 'auto',
-    paddingBottom: 20,
-  },
-  issueButton: {
-    backgroundColor: '#6B46C1',
-    borderRadius: 8,
-    padding: 15,
-    alignItems: 'center',
-  },
-  issueButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: 'bold',
+    padding: 4,
   },
   selectFriendsButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E1E1E',
-    borderRadius: 8,
-    padding: 15,
+    justifyContent: 'space-between',
+    backgroundColor: '#292929',
+    borderRadius: 12,
+    padding: 14,
     borderWidth: 1,
     borderColor: '#333',
   },
-  selectFriendsIcon: {
-    marginRight: 10,
+  selectFriendsLeftContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   selectFriendsText: {
     color: '#FFFFFF',
     fontSize: 16,
     flex: 1,
+  },
+  selectedFriendsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 12,
+  },
+  selectedFriendChip: {
+    backgroundColor: 'rgba(107, 70, 193, 0.3)',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    margin: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(107, 70, 193, 0.5)',
+  },
+  selectedFriendName: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  buttonWrapper: {
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'ios' ? 30 : 20,
+    paddingTop: 10,
+    backgroundColor: '#121212',
+    borderTopWidth: 1,
+    borderTopColor: '#222',
+  },
+  issueButton: {
+    backgroundColor: '#6B46C1',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  issueButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   modalOverlay: {
     flex: 1,
@@ -1027,22 +1106,6 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
-  },
-  selectedFriendsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 10,
-  },
-  selectedFriendChip: {
-    backgroundColor: '#333',
-    borderRadius: 20,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    margin: 4,
-  },
-  selectedFriendName: {
-    color: 'white',
-    fontSize: 14,
   },
   iosPickerContainer: {
     backgroundColor: '#1A1A1A',
