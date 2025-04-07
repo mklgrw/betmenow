@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Image,
+  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 // @ts-ignore - There's an issue with moduleResolution for @react-navigation/native
@@ -15,9 +16,11 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useBets } from '../context/BetContext';
+import { useFriends } from '../context/FriendsContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../services/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { formatDistanceToNow } from 'date-fns';
 
 type StatisticSummary = {
   totalWon: number;
@@ -35,6 +38,47 @@ type UserProfile = {
   avatarUrl?: string;
 };
 
+type BetActivity = {
+  id: string;
+  description: string;
+  timestamp: string;
+  type: 'bet' | 'recipient' | 'won' | 'lost' | 'completed' | 'created';
+  amount: number;
+  creator: DatabaseUser;
+  status: string;
+  participants?: DatabaseUser[];
+  betId?: string; // Optional field for navigation
+};
+
+type DatabaseUser = {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+};
+
+interface DatabaseResponse<T> {
+  data: T[] | null;
+  error: Error | null;
+}
+
+interface DatabaseBet {
+  id: string;
+  description: string;
+  stake: number;
+  created_at: string;
+  status: string;
+  creator: DatabaseUser;
+}
+
+interface DatabaseBetRecipient {
+  bet: DatabaseBet;
+}
+
+interface DatabaseBetBetween extends DatabaseBet {
+  bet_recipients: Array<{ recipient_id: string }>;
+}
+
 const DashboardScreen = () => {
   const [statistics, setStatistics] = useState<StatisticSummary>({
     totalWon: 0,
@@ -47,12 +91,16 @@ const DashboardScreen = () => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
+  const [betActivities, setBetActivities] = useState<BetActivity[]>([]);
+  const [betweenActivities, setBetweenActivities] = useState<BetActivity[]>([]);
+  const [selectedTab, setSelectedTab] = useState<'feed' | 'between'>('feed');
   
   const navigation = useNavigation();
   const route = useRoute();
   const theme = useTheme();
   const { user } = useAuth();
   const { bets, fetchBets, loading } = useBets();
+  const { friends, isFriend, addFriend, removeFriend } = useFriends();
   
   // Get userId from route params if available, otherwise use current user
   const userId = route.params?.userId || user?.id;
@@ -153,6 +201,130 @@ const DashboardScreen = () => {
     setIsLoading(false);
   };
 
+  const fetchBetActivities = async () => {
+    try {
+      setIsLoading(true);
+
+      // Fetch bets created by the user
+      const { data: createdBets, error: createdError } = await supabase
+        .from('bets_with_details')
+        .select('*')
+        .eq('creator_id', userId)
+        .returns<DatabaseBet[]>();
+
+      // Fetch bets where user is a recipient
+      const { data: participatedBets, error: participatedError } = await supabase
+        .from('bet_recipients_with_details')
+        .select('*')
+        .eq('user_id', userId)
+        .returns<DatabaseBetRecipient[]>();
+
+      if (createdError || participatedError) {
+        console.error('Error fetching bets:', createdError || participatedError);
+        return;
+      }
+
+      // Transform created bets into activities
+      const createdActivities: BetActivity[] = (createdBets || []).map((bet) => ({
+        id: bet.id,
+        description: bet.description,
+        timestamp: bet.created_at,
+        type: 'bet',
+        amount: bet.stake,
+        creator: {
+          id: bet.creator_user_id,
+          username: bet.creator_username,
+          display_name: bet.creator_display_name,
+          avatar_url: bet.creator_avatar_url
+        },
+        status: bet.status,
+        betId: bet.id
+      }));
+
+      // Transform participated bets into activities
+      const participatedActivities: BetActivity[] = (participatedBets || []).map((bet) => ({
+        id: bet.id,
+        description: bet.description,
+        timestamp: bet.created_at,
+        type: 'recipient',
+        amount: bet.stake,
+        creator: {
+          id: bet.creator_user_id,
+          username: bet.creator_username,
+          display_name: bet.creator_display_name,
+          avatar_url: bet.creator_avatar_url
+        },
+        status: bet.status,
+        betId: bet.id
+      }));
+
+      // Combine and sort all activities by timestamp
+      const allActivities = [...createdActivities, ...participatedActivities].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+
+      setBetActivities(allActivities);
+
+      // If viewing another user's profile, fetch bets between the current user and that user
+      if (user?.id !== userId) {
+        const otherUserId = user?.id;
+        if (!otherUserId) return;
+
+        const { data: betweenUsers, error: betweenError } = await supabase
+          .from('bet_recipients_with_details')
+          .select('*')
+          .or(`and(creator_id.eq.${userId},user_id.eq.${otherUserId}),and(creator_id.eq.${otherUserId},user_id.eq.${userId})`)
+          .returns<DatabaseBetBetween[]>();
+
+        if (betweenError) {
+          console.error('Error fetching bets between users:', betweenError);
+          return;
+        }
+
+        const betweenActivities: BetActivity[] = (betweenUsers || []).map((bet) => ({
+          id: bet.id,
+          description: bet.description,
+          timestamp: bet.created_at,
+          type: bet.creator_id === userId ? 'bet' : 'recipient',
+          amount: bet.stake,
+          creator: {
+            id: bet.creator_user_id,
+            username: bet.creator_username,
+            display_name: bet.creator_display_name,
+            avatar_url: bet.creator_avatar_url
+          },
+          status: bet.status,
+          betId: bet.id
+        }));
+
+        setBetweenActivities(betweenActivities);
+      }
+    } catch (error) {
+      console.error('Error in fetchBetActivities:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const getBetActivityType = (status: string): BetActivity['type'] => {
+    switch (status) {
+      case 'won':
+        return 'won';
+      case 'lost':
+        return 'lost';
+      case 'completed':
+        return 'completed';
+      default:
+        return 'created';
+    }
+  };
+
+  useEffect(() => {
+    if (userId && !isCurrentUser) {
+      fetchBetActivities();
+    }
+  }, [userId, isCurrentUser]);
+
   const renderStatCard = (title: string, value: number | string, icon: string, bgColors: [string, string], textColor: string = '#FFFFFF') => (
     <LinearGradient
       colors={bgColors}
@@ -233,6 +405,85 @@ const DashboardScreen = () => {
     );
   };
 
+  const renderItem = ({ item }: { item: BetActivity }) => {
+    // Use empty array as default value for optional participants
+    const participantsList = item.participants ?? [];
+    return (
+      <TouchableOpacity
+        style={styles.activityItem}
+        onPress={() => {
+          if (item.betId) {
+            navigation.navigate('BetDetails', { betId: item.betId });
+          }
+        }}
+      >
+        <View style={styles.activityContent}>
+          <Text style={styles.activityDescription}>{item.description}</Text>
+          <Text style={styles.activityTimestamp}>
+            {formatDistanceToNow(new Date(item.timestamp), { addSuffix: true })}
+          </Text>
+          <Text style={styles.activityAmount}>${item.amount}</Text>
+          {participantsList.length > 0 && (
+            <View style={styles.participantsContainer}>
+              {participantsList.map((participant) => (
+                <Text key={participant.id} style={styles.participantName}>
+                  {participant.display_name || participant.username}
+                </Text>
+              ))}
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderSocialHeader = () => {
+    if (isCurrentUser) return null;
+
+    return (
+      <View style={styles.socialHeader}>
+        <TouchableOpacity
+          style={styles.friendButton}
+          onPress={() => isFriend(userId) ? removeFriend(userId) : addFriend(userId)}
+        >
+          <Ionicons 
+            name={isFriend(userId) ? "person-remove" : "person-add"} 
+            size={20} 
+            color="#FFFFFF" 
+          />
+          <Text style={styles.friendButtonText}>
+            {isFriend(userId) ? "Friends" : "Add Friend"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderTabs = () => {
+    if (isCurrentUser) return null;
+
+    return (
+      <View style={styles.tabsContainer}>
+        <TouchableOpacity
+          style={[styles.tab, selectedTab === 'feed' && styles.activeTab]}
+          onPress={() => setSelectedTab('feed')}
+        >
+          <Text style={[styles.tabText, selectedTab === 'feed' && styles.activeTabText]}>
+            Feed
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, selectedTab === 'between' && styles.activeTab]}
+          onPress={() => setSelectedTab('between')}
+        >
+          <Text style={[styles.tabText, selectedTab === 'between' && styles.activeTabText]}>
+            Between You
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   if (isLoading) {
     return (
       <View style={[styles.container, styles.loadingContainer]}>
@@ -256,6 +507,7 @@ const DashboardScreen = () => {
 
       <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.contentContainer}>
         {renderProfileSection()}
+        {renderSocialHeader()}
         
         <View style={styles.divider} />
         
@@ -296,6 +548,26 @@ const DashboardScreen = () => {
             </Text>
           </LinearGradient>
         </View>
+
+        {!isCurrentUser && (
+          <>
+            {renderTabs()}
+            <FlatList
+              data={selectedTab === 'feed' ? betActivities : betweenActivities}
+              renderItem={renderItem}
+              keyExtractor={item => item.id}
+              style={styles.activitiesList}
+              contentContainerStyle={styles.activitiesContent}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyStateText}>
+                    {selectedTab === 'feed' ? 'No activities to show' : 'No bets between you'}
+                  </Text>
+                </View>
+              }
+            />
+          </>
+        )}
 
         {isCurrentUser && (
           <TouchableOpacity
@@ -500,6 +772,96 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  socialHeader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  friendButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6B46C1',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+  },
+  friendButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    marginTop: 20,
+    marginBottom: 16,
+    paddingHorizontal: 16,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  activeTab: {
+    borderBottomColor: '#6B46C1',
+  },
+  tabText: {
+    color: '#888888',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  activeTabText: {
+    color: '#FFFFFF',
+  },
+  activitiesList: {
+    marginTop: 16,
+  },
+  activitiesContent: {
+    paddingHorizontal: 16,
+  },
+  activityItem: {
+    backgroundColor: '#2A2A2A',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+  },
+  activityContent: {
+    flex: 1,
+  },
+  activityDescription: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  activityTimestamp: {
+    color: '#888888',
+    fontSize: 14,
+  },
+  activityAmount: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 4,
+  },
+  participantsContainer: {
+    flexDirection: 'row',
+    marginTop: 4,
+  },
+  participantName: {
+    color: '#AAAAAA',
+    fontSize: 14,
+    marginLeft: 4,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  emptyStateText: {
+    color: '#888888',
+    fontSize: 16,
   },
 });
 
