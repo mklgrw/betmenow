@@ -14,13 +14,21 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 // @ts-ignore - There's an issue with moduleResolution for @react-navigation/native
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useBets, ProcessedBet } from '../context/BetContext';
 import { supabase, createBetsTable, createBetRecipientsTable, createTableWithSQL, createBetStatusTrigger } from '../services/supabase';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { NavigationProp } from '@react-navigation/native';
+
+// Define route parameter types
+type RouteParams = {
+  refresh?: boolean;
+  activeTab?: string;
+  newBetCreated?: boolean;
+  newBetId?: string;
+};
 
 // Define types for bet data
 type BetDetails = {
@@ -48,8 +56,8 @@ const HomeScreen = () => {
   const { user } = useAuth();
   
   // Get the route to access parameters
-  const route = useRoute();
-  const refreshParam = route?.params?.refresh;
+  const route = useRoute<RouteProp<Record<string, RouteParams>, string>>();
+  const refreshParam = route.params?.refresh;
   const activeTabParam = route.params?.activeTab;
   
   // Use the BetContext for state management
@@ -192,10 +200,6 @@ const HomeScreen = () => {
             </View>
           )}
           
-          <View style={styles.commentBubble}>
-            <Text style={styles.commentCount}>{item.commentCount}</Text>
-            <Ionicons name="chatbubble-outline" size={20} color="white" />
-          </View>
           <View style={styles.stakeContainer}>
             <Text style={styles.stakeAmount}>${item.stake}</Text>
             <Text style={styles.stakeEmoji}>💰</Text>
@@ -436,11 +440,16 @@ const styles = StyleSheet.create({
   },
   betCard: {
     backgroundColor: '#2A2A2A',
-    borderRadius: 10,
-    padding: 15,
+    borderRadius: 16,
+    padding: 18,
     marginBottom: 15,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   betContent: {
     flex: 1,
@@ -451,6 +460,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 8,
     lineHeight: 22,
+    fontWeight: '500',
   },
   betTimestamp: {
     color: '#999',
@@ -460,23 +470,14 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'space-between',
   },
-  commentBubble: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  commentCount: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    marginRight: 5,
-  },
   stakeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 'auto',
-    backgroundColor: '#333',
-    borderRadius: 8,
-    paddingVertical: 5,
-    paddingHorizontal: 10,
+    backgroundColor: '#3D3D3D',
+    borderRadius: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
   },
   stakeAmount: {
     color: '#FFFFFF',
