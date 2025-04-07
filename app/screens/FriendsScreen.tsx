@@ -14,11 +14,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 // @ts-ignore - There's an issue with moduleResolution for @react-navigation/native
 import { useNavigation } from '@react-navigation/native';
-import * as Contacts from 'expo-contacts';
 import { useAuth } from '../context/AuthContext';
 import { supabase, createUsersTable, createFriendshipsTable } from '../services/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Animated } from 'react-native';
 
 type AppContact = {
   id: string;
@@ -30,19 +28,21 @@ type AppContact = {
   isFriend: boolean;
 };
 
-type TabType = 'friends' | 'contacts' | 'users';
+type TabType = 'friends' | 'users';
+
+// Define navigator type
+type NavigationProps = {
+  navigate: (screen: string, params?: any) => void;
+};
 
 const FriendsScreen = () => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [contacts, setContacts] = useState<AppContact[]>([]);
   const [appFriends, setAppFriends] = useState<AppContact[]>([]);
   const [otherUsers, setOtherUsers] = useState<AppContact[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>('friends');
   const [loading, setLoading] = useState(true);
-  const [hasPermission, setHasPermission] = useState(false);
-  const [showPermissionModal, setShowPermissionModal] = useState(false);
   
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProps>();
   const { user } = useAuth();
 
   // Load data on component mount
@@ -67,22 +67,6 @@ const FriendsScreen = () => {
 
     loadData();
   }, [user?.id]);
-
-  // Check contacts permission when contacts tab is selected
-  useEffect(() => {
-    if (activeTab === 'contacts' && !hasPermission && contacts.length === 0) {
-      checkContactsPermission();
-    }
-  }, [activeTab]);
-
-  // Check contacts permission
-  const checkContactsPermission = async () => {
-    const { status } = await Contacts.getPermissionsAsync();
-    setHasPermission(status === 'granted');
-    if (status === 'granted') {
-      loadContacts();
-    }
-  };
 
   // Load app friends from database
   const loadAppFriends = async () => {
@@ -205,41 +189,6 @@ const FriendsScreen = () => {
     }
   };
 
-  // Load contacts from device
-  const loadContacts = async () => {
-    try {
-      const { data } = await Contacts.getContactsAsync({
-        fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers]
-      });
-      
-      if (data.length > 0) {
-        const contactsList: AppContact[] = data
-          .filter(contact => contact.name && contact.phoneNumbers && contact.phoneNumbers.length > 0)
-          .map(contact => ({
-            id: contact.id || `contact-${Math.random().toString(36).substr(2, 9)}`,
-            name: contact.name || 'Unknown',
-            phoneNumber: contact.phoneNumbers?.[0]?.number,
-            isAppUser: false,
-            isFriend: false
-          }));
-        setContacts(contactsList);
-      }
-    } catch (error) {
-      console.error('Error loading contacts:', error);
-    }
-  };
-
-  // Request contacts permission
-  const requestContactsPermission = async () => {
-    const { status } = await Contacts.requestPermissionsAsync();
-    setHasPermission(status === 'granted');
-    setShowPermissionModal(false);
-    
-    if (status === 'granted') {
-      loadContacts();
-    }
-  };
-
   // Add friend to database
   const addFriend = async (friendId: string) => {
     try {
@@ -316,16 +265,11 @@ const FriendsScreen = () => {
     }
   };
 
-  // Invite contact via SMS
-  const inviteContact = async (contact: AppContact) => {
+  // Share app via message
+  const shareViaMessage = async () => {
     try {
-      if (!contact.phoneNumber) {
-        Alert.alert('Error', 'No phone number available for this contact');
-        return;
-      }
-      
-      const message = `Hey, I'm using the Bet Me Now app to make friendly bets! Join me: [Your App Store Link]`;
-      const url = `sms:${contact.phoneNumber}?body=${encodeURIComponent(message)}`;
+      const message = `download the BET app https://betmenow.app`;
+      const url = `sms:&body=${encodeURIComponent(message)}`;
       
       const supported = await Linking.canOpenURL(url);
       if (supported) {
@@ -334,8 +278,8 @@ const FriendsScreen = () => {
         Alert.alert('Error', 'SMS is not supported on this device');
       }
     } catch (error) {
-      console.error('Error sending SMS invitation:', error);
-      Alert.alert('Error', 'Failed to send invitation');
+      console.error('Error sending SMS:', error);
+      Alert.alert('Error', 'Failed to open messages app');
     }
   };
 
@@ -351,12 +295,6 @@ const FriendsScreen = () => {
         (friend.username && friend.username.toLowerCase().includes(searchQuery.toLowerCase()))
       )
     : appFriends;
-
-  const filteredContacts = searchQuery 
-    ? contacts.filter(contact => 
-        contact.name.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : contacts;
 
   const filteredOtherUsers = searchQuery
     ? otherUsers.filter(user =>
@@ -383,9 +321,7 @@ const FriendsScreen = () => {
     const handleAction = async () => {
       setIsLoading(true);
       try {
-        if (section === 'contacts') {
-          await inviteContact(contact);
-        } else if (section === 'friends') {
+        if (section === 'friends') {
           await removeFriend(contact.id);
         } else {
           await addFriend(contact.id);
@@ -396,26 +332,22 @@ const FriendsScreen = () => {
     };
 
     const getButtonStyle = () => {
-      if (section === 'contacts') return styles.inviteButton;
       if (section === 'friends') return styles.unfriendButton;
       return styles.addFriendButton;
     };
 
     const getButtonTextStyle = () => {
-      if (section === 'contacts') return styles.inviteButtonText;
       if (section === 'friends') return styles.unfriendButtonText;
       return styles.addFriendButtonText;
     };
 
     const getButtonText = () => {
       if (isLoading) return '';
-      if (section === 'contacts') return 'Invite';
       if (section === 'friends') return 'Friends';
       return 'Add Friend';
     };
 
     const getIconName = () => {
-      if (section === 'contacts') return 'paper-plane-outline';
       if (section === 'friends') return 'checkmark-circle';
       return 'person-add-outline';
     };
@@ -423,7 +355,7 @@ const FriendsScreen = () => {
     return (
       <TouchableOpacity 
         style={styles.contactItem} 
-        onPress={() => section === 'contacts' ? null : viewUserProfile(contact.id)}
+        onPress={() => viewUserProfile(contact.id)}
       >
         <View style={styles.contactAvatar}>
           {contact.avatarUrl ? (
@@ -438,9 +370,7 @@ const FriendsScreen = () => {
         <View style={styles.contactInfo}>
           <Text style={styles.contactName}>{contact.name}</Text>
           <Text style={styles.contactDetail}>
-            {section === 'contacts'
-              ? (contact.phoneNumber || '')
-              : (contact.username || '@' + contact.name.toLowerCase().replace(/\s/g, ''))}
+            {contact.username || '@' + contact.name.toLowerCase().replace(/\s/g, '')}
           </Text>
         </View>
         <TouchableOpacity 
@@ -469,18 +399,8 @@ const FriendsScreen = () => {
   // Render empty list message
   const EmptyListMessage = ({ tabType }: { tabType: TabType }) => {
     let message = '';
-    let action = null;
     
     switch (tabType) {
-      case 'contacts':
-        message = 'No contacts found';
-        action = hasPermission ? null : (
-          <TouchableOpacity style={styles.inviteButton} onPress={() => setShowPermissionModal(true)}>
-            <Ionicons name="person-add" size={20} color="#fff" style={styles.inviteIcon} />
-            <Text style={styles.inviteButtonText}>Access Contacts</Text>
-          </TouchableOpacity>
-        );
-        break;
       case 'friends':
         message = 'You have no friends yet';
         break;
@@ -492,31 +412,12 @@ const FriendsScreen = () => {
     return (
       <View style={styles.emptyContainer}>
         <View style={styles.emptyIconContainer}>
-          <Ionicons name={tabType === 'contacts' ? 'call' : 'people'} size={64} color="#ccc" />
+          <Ionicons name="people" size={64} color="#ccc" />
         </View>
         <Text style={styles.emptyText}>{message}</Text>
-        {action}
       </View>
     );
   };
-
-  // Render permission modal
-  const renderPermissionModal = () => (
-    <View style={styles.modalOverlay}>
-      <View style={styles.modalContent}>
-        <Text style={styles.modalTitle}>"Bet Me Now" Would Like to Access Your Contacts</Text>
-        <Text style={styles.modalText}>This lets you invite friends from your contacts.</Text>
-        
-        <TouchableOpacity style={styles.modalButton} onPress={requestContactsPermission}>
-          <Text style={styles.modalButtonText}>Allow Access to Contacts</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.modalButtonOutline} onPress={() => setShowPermissionModal(false)}>
-          <Text style={styles.modalButtonOutlineText}>Don't Allow</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
 
   // Render tab content
   const renderTabContent = () => {
@@ -538,30 +439,6 @@ const FriendsScreen = () => {
               ))
             ) : (
               <EmptyListMessage tabType="friends" />
-            )}
-          </View>
-        );
-      
-      case 'contacts':
-        if (!hasPermission && contacts.length === 0) {
-          return (
-            <View style={styles.emptyContainer}>
-              <EmptyListMessage tabType="contacts" />
-            </View>
-          );
-        }
-        return (
-          <View style={styles.listContainer}>
-            {filteredContacts.length > 0 ? (
-              filteredContacts.map(contact => (
-                <ContactItem 
-                  key={`contact-${contact.id}`} 
-                  contact={contact} 
-                  section="contacts" 
-                />
-              ))
-            ) : (
-              <EmptyListMessage tabType="contacts" />
             )}
           </View>
         );
@@ -589,6 +466,13 @@ const FriendsScreen = () => {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Friends</Text>
+        <TouchableOpacity 
+          style={styles.shareButton}
+          onPress={shareViaMessage}
+        >
+          <Ionicons name="share-outline" size={20} color="#FFFFFF" style={styles.shareIcon} />
+          <Text style={styles.shareButtonText}>Invite Friends</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.searchContainer}>
@@ -604,13 +488,10 @@ const FriendsScreen = () => {
 
       <View style={styles.tabsContainer}>
         {renderTabButton('friends', 'Friends', 'people')}
-        {renderTabButton('contacts', 'Contacts', 'call')}
         {renderTabButton('users', 'Users', 'globe')}
       </View>
 
       {renderTabContent()}
-
-      {showPermissionModal && renderPermissionModal()}
     </SafeAreaView>
   );
 };
@@ -624,12 +505,35 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingTop: 20,
     backgroundColor: '#1A1A1A',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#FFFFFF',
+  },
+  shareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6B46C1',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  shareIcon: {
+    marginRight: 6,
+  },
+  shareButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
   searchContainer: {
     flexDirection: 'row',
@@ -738,83 +642,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#AAAAAA',
     marginBottom: 24,
-  },
-  inviteIcon: {
-    marginRight: 8,
-  },
-  inviteButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#2E8B57',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    minWidth: 110,
-    justifyContent: 'center',
-  },
-  inviteButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  modalContent: {
-    backgroundColor: '#2A2A2A',
-    padding: 24,
-    borderRadius: 12,
-    width: '80%',
-    alignItems: 'center',
-  },
-  modalTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  modalText: {
-    color: '#CCCCCC',
-    fontSize: 14,
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  modalButton: {
-    backgroundColor: '#6B46C1',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginBottom: 12,
-    width: '100%',
-    alignItems: 'center',
-  },
-  modalButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  modalButtonOutline: {
-    backgroundColor: 'transparent',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    borderColor: '#999',
-    borderWidth: 1,
-    width: '100%',
-    alignItems: 'center',
-  },
-  modalButtonOutlineText: {
-    color: '#FFFFFF',
-    fontSize: 16,
   },
   buttonIcon: {
     marginRight: 6,
