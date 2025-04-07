@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { useBets } from '../context/BetContext';
+import { useBets, ProcessedBet } from '../context/BetContext';
 import { useFriends } from '../context/FriendsContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../services/supabase';
@@ -166,10 +166,137 @@ const DashboardScreen = () => {
       return;
     }
     
-    // Otherwise fetch bets for the specified user
-    // This is a placeholder and would need to be implemented
-    // with a specific API endpoint or function to get another user's bets
-    setIsLoading(false);
+    setIsLoading(true);
+    try {
+      // Get all bets created by the viewed user
+      const { data: userBets, error: userBetsError } = await supabase
+        .from('bets')
+        .select('*')
+        .eq('creator_id', id);
+        
+      if (userBetsError) {
+        console.error("Error fetching user bets:", userBetsError);
+        return;
+      }
+      
+      // Get all bet recipients where the viewed user is a recipient
+      const { data: recipientBets, error: recipientBetsError } = await supabase
+        .from('bet_recipients')
+        .select('*, bets(id, description, stake, creator_id, status, created_at)')
+        .eq('recipient_id', id);
+        
+      if (recipientBetsError) {
+        console.error("Error fetching recipient bets:", recipientBetsError);
+        return;
+      }
+      
+      // Process bets similar to BetContext
+      let allBets: ProcessedBet[] = [];
+      
+      // Process bets created by the user
+      if (userBets && userBets.length > 0) {
+        const processedCreatedBets = await Promise.all(userBets.map(async bet => {
+          // Check if there are any recipients with 'lost' status (meaning creator won)
+          let myOutcome: 'won' | 'lost' | null = null;
+          
+          const { data: recipients, error } = await supabase
+            .from('bet_recipients')
+            .select('id, status')
+            .eq('bet_id', bet.id);
+            
+          if (!error && recipients) {
+            // If any recipient lost, the creator won
+            if (recipients.some(r => r.status === 'lost')) {
+              myOutcome = 'won';
+            }
+            // If any recipient won, the creator lost
+            else if (recipients.some(r => r.status === 'won')) {
+              myOutcome = 'lost';
+            }
+          }
+          
+          return {
+            id: bet.id,
+            description: bet.description || "No description",
+            stake: bet.stake || 0,
+            timestamp: bet.created_at,
+            commentCount: 0,
+            status: bet.status || 'pending',
+            isCreator: true,
+            hasWonOrLostRecipient: recipients?.some(r => r.status === 'won' || r.status === 'lost') || false,
+            isMyOutcome: myOutcome
+          } as ProcessedBet;
+        }));
+        
+        allBets = [...processedCreatedBets];
+      }
+      
+      // Process bets where user is a recipient
+      if (recipientBets && recipientBets.length > 0) {
+        const processedRecipientBets = recipientBets
+          .map(recipientBet => {
+            const bet = recipientBet.bets;
+            if (!bet) return null;
+            
+            // For bets they're a recipient of, check if their status is won/lost
+            const hasWonLost = recipientBet.status === 'won' || recipientBet.status === 'lost';
+            
+            // Set their outcome based on recipient status
+            let myOutcome: 'won' | 'lost' | null = null;
+            if (recipientBet.status === 'won') myOutcome = 'won';
+            else if (recipientBet.status === 'lost') myOutcome = 'lost';
+            
+            return {
+              id: bet.id,
+              description: bet.description || "No description",
+              stake: bet.stake || 0,
+              timestamp: bet.created_at,
+              commentCount: 0,
+              status: recipientBet.status || 'pending',
+              pendingOutcome: recipientBet.pending_outcome,
+              isCreator: false,
+              recipientId: recipientBet.id,
+              creatorId: bet.creator_id,
+              hasWonOrLostRecipient: hasWonLost,
+              isMyOutcome: myOutcome
+            } as ProcessedBet;
+          })
+          .filter((bet): bet is ProcessedBet => bet !== null);
+        
+        allBets = [...allBets, ...processedRecipientBets];
+      }
+      
+      // Calculate statistics from the fetched bets
+      const stats = {
+        totalWon: 0,
+        totalLost: 0,
+        totalInProgress: 0,
+        totalPending: 0,
+        stakeWon: 0,
+        stakeLost: 0,
+      };
+
+      allBets.forEach(bet => {
+        // Count bets by status
+        if (bet.status === 'won' || bet.isMyOutcome === 'won') {
+          stats.totalWon++;
+          stats.stakeWon += Number(bet.stake);
+        } else if (bet.status === 'lost' || bet.isMyOutcome === 'lost') {
+          stats.totalLost++;
+          stats.stakeLost += Number(bet.stake);
+        } else if (bet.status === 'in_progress') {
+          stats.totalInProgress++;
+        } else if (bet.status === 'pending') {
+          stats.totalPending++;
+        }
+      });
+
+      setStatistics(stats);
+    } catch (error) {
+      console.error("Error in fetchUserBets:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const calculateStatistics = () => {
