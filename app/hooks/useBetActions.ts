@@ -192,21 +192,12 @@ export const useBetActions = ({
       
       dispatch({ type: 'ACTION_SUCCESS' });
       
-      // Show success message and navigate back to home screen with safer navigation
-      Alert.alert(
-        "Success",
-        "Bet deleted successfully.",
-        [{ 
-          text: "OK", 
-          onPress: () => {
-            if (navigation && navigation.canGoBack && navigation.canGoBack()) {
-              navigation.goBack();
-            } else {
-              navigation.navigate('Home');
-            }
-          } 
-        }]
-      );
+      // Navigate back to home screen with safer navigation
+      if (navigation && navigation.canGoBack && navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.navigate('Home');
+      }
     } catch (error) {
       console.error("Unexpected error in deleteBet:", error);
       dispatch({ type: 'ACTION_ERROR', payload: 'Unexpected error occurred' });
@@ -342,10 +333,7 @@ export const useBetActions = ({
       fetchBetDetails();
       fetchBets();
       
-      Alert.alert(
-        "Success",
-        "You've claimed victory! The other party will need to confirm."
-      );
+      // Success alert removed
     } catch (error) {
       console.error("Error declaring win:", error);
       dispatch({ type: 'ACTION_ERROR', payload: 'An unexpected error occurred' });
@@ -462,20 +450,12 @@ export const useBetActions = ({
       fetchBetDetails();
       fetchBets();
       
-      Alert.alert(
-        "Success",
-        "Outcome confirmed!",
-        [{ 
-          text: "OK", 
-          onPress: () => {
-            if (navigation.canGoBack && navigation.canGoBack()) {
-              navigation.goBack();
-            } else {
-              navigation.navigate('Home');
-            }
-          } 
-        }]
-      );
+      // For direct confirmation, navigate back to home to show updated list
+      if (navigation.canGoBack && navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.navigate('Home');
+      }
     } catch (error) {
       console.error("Error confirming outcome:", error);
       dispatch({ type: 'ACTION_ERROR', payload: 'An unexpected error occurred' });
@@ -533,10 +513,7 @@ export const useBetActions = ({
       fetchBetDetails();
       fetchBets();
       
-      Alert.alert(
-        "Outcome Rejected",
-        "You've rejected the claimed outcome. The bet will continue."
-      );
+      // Success alert removed
     } catch (error) {
       console.error("Error rejecting outcome:", error);
       dispatch({ type: 'ACTION_ERROR', payload: 'An unexpected error occurred' });
@@ -577,21 +554,12 @@ export const useBetActions = ({
       
       dispatch({ type: 'ACTION_SUCCESS' });
       
-      // Show success message and navigate back with safer navigation
-      Alert.alert(
-        "Success",
-        "Bet cancelled successfully.",
-        [{ 
-          text: "OK", 
-          onPress: () => {
-            if (navigation && navigation.canGoBack && navigation.canGoBack()) {
-              navigation.goBack();
-            } else {
-              navigation.navigate('Home');
-            }
-          } 
-        }]
-      );
+      // Navigate back to home with safer navigation
+      if (navigation && navigation.canGoBack && navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.navigate('Home');
+      }
     } catch (error) {
       console.error("Unexpected error in cancelBet:", error);
       dispatch({ type: 'ACTION_ERROR', payload: 'Unexpected error occurred' });
@@ -601,7 +569,9 @@ export const useBetActions = ({
   
   // Send a reminder to recipient (simple alert for now)
   const sendReminder = useCallback((recipientId: string) => {
-    Alert.alert("Reminder Sent", "A reminder has been sent to this user.");
+    // Silently perform the reminder action without showing an alert
+    console.log(`Reminder sent to recipient: ${recipientId}`);
+    // Future implementation: actual notification functionality
   }, []);
   
   return {

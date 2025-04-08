@@ -60,6 +60,7 @@ export interface BetRecipient {
   created_at?: string;
   display_name?: string;
   profiles?: Profile | null;
+  profile?: Profile | null;
   pending_outcome?: PendingOutcome;
   outcome_claimed_by?: string | null;
   outcome_claimed_at?: string | null;

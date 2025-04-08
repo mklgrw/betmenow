@@ -476,12 +476,12 @@ export const BetProvider: React.FC<{children: ReactNode}> = ({ children }) => {
       Alert.alert("Error", "An unexpected error occurred");
     }
   }, [fetchBets]);
-  
+
   // Handle rejecting a bet
   const handleRejectBet = useCallback(async (recipientId: string) => {
     try {
       const { data, error } = await supabase.rpc('reject_bet', {
-        p_recipient_id: recipientId
+          p_recipient_id: recipientId
       });
       
       if (error) {
@@ -500,14 +500,14 @@ export const BetProvider: React.FC<{children: ReactNode}> = ({ children }) => {
   const handleAcceptBet = useCallback(async (recipientId: string) => {
     try {
       const { data, error } = await supabase.rpc('accept_bet', {
-        p_recipient_id: recipientId
+          p_recipient_id: recipientId
       });
       
       if (error) {
         console.error("Error accepting bet:", error);
         Alert.alert("Error", "Failed to accept bet");
       } else {
-        fetchBets();
+    fetchBets();
       }
     } catch (error) {
       console.error("Error in handleAcceptBet:", error);
@@ -568,11 +568,11 @@ export const BetProvider: React.FC<{children: ReactNode}> = ({ children }) => {
   
   const value = {
     ...state,
-    fetchBets,
+      fetchBets,
     refreshBets,
-    setActiveTab,
-    setSearchQuery,
-    onRefresh,
+      setActiveTab,
+      setSearchQuery,
+      onRefresh,
     deleteBet,
     handleRejectBet,
     handleAcceptBet
@@ -583,7 +583,7 @@ export const BetProvider: React.FC<{children: ReactNode}> = ({ children }) => {
       {children}
     </BetContext.Provider>
   );
-};
+}; 
 
 // Custom hook to use bet context
 export const useBets = () => useContext(BetContext); 

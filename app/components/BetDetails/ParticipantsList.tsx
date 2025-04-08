@@ -50,12 +50,14 @@ const ParticipantsList: React.FC<ParticipantsListProps> = ({
   const renderCreator = useCallback(() => {
     if (!bet) return null;
     
-    // Get creator data from the first recipient's creator property
-    const creatorData = recipients[0]?.creator;
+    // Get creator data from bet.creator property
+    const creatorData = bet.creator;
     
     // Get creator name with better fallbacks
     const creatorName = creatorData?.display_name || 
                        creatorData?.username || 
+                       bet.creator?.display_name ||
+                       bet.creator?.username ||
                        `Challenger ${bet.creator_id?.slice(0, 8) || ''}`;
     
     // Get avatar initial
@@ -84,7 +86,7 @@ const ParticipantsList: React.FC<ParticipantsListProps> = ({
         </View>
       </TouchableOpacity>
     );
-  }, [bet, recipients, handleUserPress]);
+  }, [bet, handleUserPress]);
 
   // Render a recipient - with useCallback for optimization
   const renderRecipient = useCallback((item: BetRecipient) => {
@@ -100,8 +102,8 @@ const ParticipantsList: React.FC<ParticipantsListProps> = ({
     else if (item.status === 'lost') statusColor = "#FF5722";
     else if (item.status === 'rejected') statusColor = "#F44336";
     
-    // Get the username from users data with better fallbacks
-    const displayName = item.profiles?.display_name || item.profiles?.username;
+    // Get the username with better fallbacks (profile not profiles)
+    const displayName = item.profiles?.display_name || item.profiles?.username || item.display_name;
     const username = displayName || `User ${item.recipient_id?.slice(0, 8) || ''}`;
     
     // Get first initial for avatar
@@ -126,7 +128,7 @@ const ParticipantsList: React.FC<ParticipantsListProps> = ({
             <Text style={styles.statusText}>{statusText}</Text>
           </View>
         </View>
-        {bet.creator_id === bet.creator_id && item.status === 'pending' && (
+        {isCreator && item.status === 'pending' && (
           <View style={styles.reminderContainer}>
             <TouchableOpacity
               style={styles.reminderButton}
@@ -139,7 +141,7 @@ const ParticipantsList: React.FC<ParticipantsListProps> = ({
         )}
       </TouchableOpacity>
     );
-  }, [bet, capitalizeFirstLetter, handleUserPress, handleReminder]);
+  }, [bet, capitalizeFirstLetter, handleUserPress, handleReminder, isCreator]);
 
   // Memoized list of recipients
   const recipientItems = useMemo(() => {

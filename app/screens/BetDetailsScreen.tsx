@@ -102,7 +102,7 @@ const BetDetailsScreen = () => {
   
   // Navigation handlers with useCallback to prevent recreations
   const handleNavigateBack = useCallback((): void => {
-    navigation.goBack();
+        navigation.goBack();
   }, [navigation]);
   
   const handleNavigateToUser = useCallback((userId: string): void => {
@@ -110,7 +110,7 @@ const BetDetailsScreen = () => {
   }, [navigation]);
   
   const handleNavigateToEditBet = useCallback((): void => {
-    if (bet) {
+          if (bet) {
       navigation.navigate('EditBet', { bet });
     }
   }, [navigation, bet]);
