@@ -92,7 +92,17 @@ function betDetailsReducer(state: BetDetailsState, action: BetDetailsAction): Be
       
       // Find recipient record for current user
       const myRecipient = recipients.find(r => r.recipient_id === currentUserId);
-      const recipientStatus = getRecipientStatus(myRecipient?.status);
+      
+      // Explicitly set recipientStatus based on user role
+      let recipientStatus: RecipientStatus | '';
+      if (isCreator) {
+        // If user is creator, always set creator status regardless of recipient record
+        recipientStatus = 'creator';
+      } else {
+        // For non-creators, use the status from recipient record if it exists
+        recipientStatus = getRecipientStatus(myRecipient?.status);
+      }
+      
       const recipientId = myRecipient?.id || null;
       
       // Check for pending outcomes
@@ -144,7 +154,17 @@ function betDetailsReducer(state: BetDetailsState, action: BetDetailsAction): Be
       
       // Find recipient record for current user
       const myRecipient = state.recipients.find(r => r.recipient_id === currentUserId);
-      const recipientStatus = getRecipientStatus(myRecipient?.status);
+      
+      // Explicitly set recipientStatus based on user role
+      let recipientStatus: RecipientStatus | '';
+      if (isCreator) {
+        // If user is creator, always set creator status regardless of recipient record
+        recipientStatus = 'creator';
+      } else {
+        // For non-creators, use the status from recipient record if it exists
+        recipientStatus = getRecipientStatus(myRecipient?.status);
+      }
+      
       const recipientId = myRecipient?.id || null;
       
       // Check for pending outcomes

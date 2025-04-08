@@ -292,39 +292,67 @@ export const useBetActions = ({
   // Declare winner
   const handleDeclareWin = useCallback(async () => {
     try {
-      if (!recipientId) {
-        Alert.alert("Error", "No recipient ID found");
-        return;
-      }
-      
       dispatch({ type: 'ACTION_START', payload: 'declare-win' });
       
-      // Find opponent if not provided
-      let opponentRecipientId: string | null = null;
-      if (recipients && recipients.length > 0) {
-        const opponent = recipients.find(r => r.recipient_id !== user?.id && r.id !== recipientId);
-        opponentRecipientId = opponent?.id || null;
-      }
-      
-      // Update statuses
-      const result = await updateRecipientStatuses(
-        recipientId, 
-        { 
-          status: 'pending' as RecipientStatus, 
-          pending_outcome: 'won' as PendingOutcome, 
-          outcome_claimed_by: user?.id, 
-          outcome_claimed_at: new Date().toISOString() 
-        },
-        opponentRecipientId,
-        { 
-          status: 'pending' as RecipientStatus, 
-          pending_outcome: null
+      // Handle the case where the current user is the creator
+      if (isCreator && !recipientId) {
+        // Get the creator's recipient record or find appropriate recipient to update
+        const opponent = recipients.find(r => r.recipient_id !== user?.id);
+        if (!opponent) {
+          Alert.alert("Error", "Could not find opponent to declare outcome against");
+          dispatch({ type: 'ACTION_ERROR', payload: 'No opponent found' });
+          return;
         }
-      );
-      
-      if (!result) {
-        dispatch({ type: 'ACTION_ERROR', payload: 'Failed to declare win' });
+        
+        // Update recipient statuses - declare win for creator, loss for opponent
+        const result = await updateRecipientStatuses(
+          opponent.id, // Update opponent's record
+          { 
+            status: 'lost' as RecipientStatus, 
+            pending_outcome: null,
+            outcome_claimed_by: user?.id, 
+            outcome_claimed_at: new Date().toISOString() 
+          },
+          null, // No second recipient to update
+          {} // No update needed
+        );
+        
+        if (!result) {
+          dispatch({ type: 'ACTION_ERROR', payload: 'Failed to declare win' });
+          return;
+        }
+      } else if (!recipientId) {
+        Alert.alert("Error", "No recipient ID found");
+        dispatch({ type: 'ACTION_ERROR', payload: 'No recipient ID found' });
         return;
+      } else {
+        // Find opponent if not provided
+        let opponentRecipientId: string | null = null;
+        if (recipients && recipients.length > 0) {
+          const opponent = recipients.find(r => r.recipient_id !== user?.id && r.id !== recipientId);
+          opponentRecipientId = opponent?.id || null;
+        }
+        
+        // Update statuses
+        const result = await updateRecipientStatuses(
+          recipientId, 
+          { 
+            status: 'pending' as RecipientStatus, 
+            pending_outcome: 'won' as PendingOutcome, 
+            outcome_claimed_by: user?.id, 
+            outcome_claimed_at: new Date().toISOString() 
+          },
+          opponentRecipientId,
+          { 
+            status: 'pending' as RecipientStatus, 
+            pending_outcome: null
+          }
+        );
+        
+        if (!result) {
+          dispatch({ type: 'ACTION_ERROR', payload: 'Failed to declare win' });
+          return;
+        }
       }
       
       dispatch({ type: 'ACTION_SUCCESS' });
@@ -339,42 +367,70 @@ export const useBetActions = ({
       dispatch({ type: 'ACTION_ERROR', payload: 'An unexpected error occurred' });
       Alert.alert("Error", "Failed to declare win. Please try again.");
     }
-  }, [recipientId, recipients, user?.id, updateRecipientStatuses, fetchBetDetails, fetchBets]);
+  }, [recipientId, recipients, user?.id, isCreator, updateRecipientStatuses, fetchBetDetails, fetchBets]);
   
   // Declare loss
   const handleDeclareLoss = useCallback(async () => {
     try {
-      if (!recipientId) {
-        Alert.alert("Error", "No recipient ID found");
-        return;
-      }
-      
       dispatch({ type: 'ACTION_START', payload: 'declare-loss' });
       
-      // Find opponent if not provided
-      let opponentRecipientId: string | null = null;
-      if (recipients && recipients.length > 0) {
-        const opponent = recipients.find(r => r.recipient_id !== user?.id && r.id !== recipientId);
-        opponentRecipientId = opponent?.id || null;
-      }
-      
-      // Update statuses
-      const result = await updateRecipientStatuses(
-        recipientId, 
-        { 
-          status: 'lost' as RecipientStatus, 
-          pending_outcome: null as PendingOutcome
-        },
-        opponentRecipientId,
-        { 
-          status: 'won' as RecipientStatus, 
-          pending_outcome: null as PendingOutcome
+      // Handle the case where the current user is the creator
+      if (isCreator && !recipientId) {
+        // Get the creator's recipient record or find appropriate recipient to update
+        const opponent = recipients.find(r => r.recipient_id !== user?.id);
+        if (!opponent) {
+          Alert.alert("Error", "Could not find opponent to declare outcome against");
+          dispatch({ type: 'ACTION_ERROR', payload: 'No opponent found' });
+          return;
         }
-      );
-      
-      if (!result) {
-        dispatch({ type: 'ACTION_ERROR', payload: 'Failed to declare loss' });
+        
+        // Update recipient statuses - declare loss for creator, win for opponent
+        const result = await updateRecipientStatuses(
+          opponent.id, // Update opponent's record
+          { 
+            status: 'won' as RecipientStatus, 
+            pending_outcome: null,
+            outcome_claimed_by: user?.id, 
+            outcome_claimed_at: new Date().toISOString() 
+          },
+          null, // No second recipient to update
+          {} // No update needed
+        );
+        
+        if (!result) {
+          dispatch({ type: 'ACTION_ERROR', payload: 'Failed to declare loss' });
+          return;
+        }
+      } else if (!recipientId) {
+        Alert.alert("Error", "No recipient ID found");
+        dispatch({ type: 'ACTION_ERROR', payload: 'No recipient ID found' });
         return;
+      } else {
+        // Find opponent if not provided
+        let opponentRecipientId: string | null = null;
+        if (recipients && recipients.length > 0) {
+          const opponent = recipients.find(r => r.recipient_id !== user?.id && r.id !== recipientId);
+          opponentRecipientId = opponent?.id || null;
+        }
+        
+        // Update statuses
+        const result = await updateRecipientStatuses(
+          recipientId, 
+          { 
+            status: 'lost' as RecipientStatus, 
+            pending_outcome: null as PendingOutcome
+          },
+          opponentRecipientId,
+          { 
+            status: 'won' as RecipientStatus, 
+            pending_outcome: null as PendingOutcome
+          }
+        );
+        
+        if (!result) {
+          dispatch({ type: 'ACTION_ERROR', payload: 'Failed to declare loss' });
+          return;
+        }
       }
       
       dispatch({ type: 'ACTION_SUCCESS' });
@@ -394,7 +450,7 @@ export const useBetActions = ({
       dispatch({ type: 'ACTION_ERROR', payload: 'An unexpected error occurred' });
       Alert.alert("Error", "Failed to declare loss. Please try again.");
     }
-  }, [recipientId, recipients, user?.id, updateRecipientStatuses, fetchBetDetails, fetchBets, navigation]);
+  }, [recipientId, recipients, user?.id, isCreator, updateRecipientStatuses, fetchBetDetails, fetchBets, navigation]);
   
   // Handle confirming a pending outcome
   const handleConfirmOutcome = useCallback(async () => {
