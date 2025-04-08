@@ -254,7 +254,7 @@ export const useBetActions = ({
       await fetchBetDetails();
       await fetchBets();
       
-      Alert.alert("Success", "Bet accepted successfully!");
+      // Success alert removed
     } catch (error) {
       console.error("Unexpected error in acceptBet:", error);
       dispatch({ type: 'ACTION_ERROR', payload: 'Unexpected error occurred' });
@@ -290,7 +290,7 @@ export const useBetActions = ({
       await fetchBetDetails();
       await fetchBets();
       
-      Alert.alert("Success", "Bet rejected successfully!");
+      // Success alert removed
     } catch (error) {
       console.error("Unexpected error in rejectBet:", error);
       dispatch({ type: 'ACTION_ERROR', payload: 'Unexpected error occurred' });

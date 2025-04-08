@@ -94,9 +94,10 @@ const BetDetailsScreen = () => {
     canDeleteBet: isCreator && bet?.status === 'pending',
     canEditBet: isCreator && bet?.status === 'pending',
     canAcceptRejectBet: !isCreator && recipientStatus === 'pending' && !pendingOutcome,
-    canDeclareOutcome: effectiveBetStatus === 'in_progress' && (recipientStatus === 'in_progress' || recipientStatus === 'creator'),
+    canDeclareOutcome: effectiveBetStatus === 'in_progress' && 
+      (recipientStatus === 'in_progress' || recipientStatus === 'creator'),
     canCancelBet: isCreator && effectiveBetStatus === 'in_progress',
-    canConfirmOutcome: opponentPendingOutcome !== null,
+    canConfirmOutcome: !!opponentPendingOutcome,
   }), [isCreator, bet?.status, recipientStatus, effectiveBetStatus, opponentPendingOutcome, pendingOutcome]);
   
   // Navigation handlers with useCallback to prevent recreations
@@ -198,7 +199,7 @@ const BetDetailsScreen = () => {
           </View>
         )}
 
-        {actionPermissions.canEditBet && bet && (
+        {actionPermissions.canEditBet && (
           <TouchableOpacity 
             style={styles.editButton}
             onPress={handleNavigateToEditBet}

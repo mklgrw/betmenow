@@ -309,12 +309,34 @@ const DashboardScreen = () => {
       stakeLost: 0,
     };
 
+    console.log('Calculating statistics for current user', bets.length);
+    
+    // Process bets to find completed ones
     bets.forEach(bet => {
-      // Count bets by status
-      if (bet.status === 'won') {
+      console.log('Processing bet:', bet.id, 'status:', bet.status);
+      
+      // Check for won/lost bets based on recipients
+      const isWon = bet.recipients?.some(r => {
+        // Creator wins if a recipient lost
+        if (bet.creator_id === user?.id && r.status === 'lost') return true;
+        // Recipient wins if they won
+        if (r.recipient_id === user?.id && r.status === 'won') return true;
+        return false;
+      });
+      
+      const isLost = bet.recipients?.some(r => {
+        // Creator loses if a recipient won
+        if (bet.creator_id === user?.id && r.status === 'won') return true;
+        // Recipient loses if they lost
+        if (r.recipient_id === user?.id && r.status === 'lost') return true;
+        return false;
+      });
+      
+      // Update stats accordingly
+      if (isWon) {
         stats.totalWon++;
         stats.stakeWon += Number(bet.stake);
-      } else if (bet.status === 'lost') {
+      } else if (isLost) {
         stats.totalLost++;
         stats.stakeLost += Number(bet.stake);
       } else if (bet.status === 'in_progress') {
@@ -324,6 +346,7 @@ const DashboardScreen = () => {
       }
     });
 
+    console.log('Final stats:', stats);
     setStatistics(stats);
     setIsLoading(false);
   };

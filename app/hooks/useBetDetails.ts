@@ -44,24 +44,36 @@ const initialState: BetDetailsState = {
   effectiveBetStatus: 'pending'
 };
 
+// Type guard for RecipientStatus
+const isRecipientStatus = (status: string | undefined): status is RecipientStatus => {
+  const validStatuses: ReadonlyArray<RecipientStatus> = [
+    'pending', 'in_progress', 'rejected', 'creator', 'won', 'lost'
+  ];
+  return !!status && validStatuses.includes(status as RecipientStatus);
+};
+
+// Type guard for BetStatus
+const isBetStatus = (status: string | undefined): status is BetStatus => {
+  const validStatuses: ReadonlyArray<BetStatus> = [
+    'pending', 'in_progress', 'completed', 'cancelled'
+  ];
+  return !!status && validStatuses.includes(status as BetStatus);
+};
+
 // Helper to safely get recipient status
 const getRecipientStatus = (status: string | undefined): RecipientStatus | '' => {
-  if (!status) return '';
-  
-  const validStatuses: RecipientStatus[] = ['pending', 'in_progress', 'rejected', 'creator', 'won', 'lost'];
-  return validStatuses.includes(status as RecipientStatus) 
-    ? (status as RecipientStatus) 
-    : '';
+  if (isRecipientStatus(status)) {
+    return status;
+  }
+  return '';
 };
 
 // Helper to safely get bet status
 const getBetStatus = (status: string | undefined): BetStatus | 'pending' => {
-  if (!status) return 'pending';
-  
-  const validStatuses: BetStatus[] = ['pending', 'in_progress', 'completed', 'cancelled'];
-  return validStatuses.includes(status as BetStatus)
-    ? (status as BetStatus)
-    : 'pending';
+  if (isBetStatus(status)) {
+    return status;
+  }
+  return 'pending';
 };
 
 // Reducer function
@@ -89,13 +101,13 @@ function betDetailsReducer(state: BetDetailsState, action: BetDetailsAction): Be
       
       // Find opponent's pending outcome
       const opponentWithPendingOutcome = recipients.find(
-        r => r.recipient_id !== currentUserId && r.pending_outcome !== null
+        r => r.recipient_id !== currentUserId && r.pending_outcome
       );
-      const opponentPendingOutcome = opponentWithPendingOutcome?.pending_outcome || null;
+      const opponentPendingOutcome = opponentWithPendingOutcome?.pending_outcome ?? null;
       
       // Check if any recipient has won or lost
       const hasWonOrLostRecipient = recipients.some(
-        r => r.status === 'won' || r.status === 'lost'
+        r => isRecipientStatus(r.status) && (r.status === 'won' || r.status === 'lost')
       );
       
       // Calculate effective bet status
@@ -141,13 +153,13 @@ function betDetailsReducer(state: BetDetailsState, action: BetDetailsAction): Be
       
       // Find opponent's pending outcome
       const opponentWithPendingOutcome = state.recipients.find(
-        r => r.recipient_id !== currentUserId && r.pending_outcome !== null
+        r => r.recipient_id !== currentUserId && r.pending_outcome
       );
-      const opponentPendingOutcome = opponentWithPendingOutcome?.pending_outcome || null;
+      const opponentPendingOutcome = opponentWithPendingOutcome?.pending_outcome ?? null;
       
       // Check if any recipient has won or lost
       const hasWonOrLostRecipient = state.recipients.some(
-        r => r.status === 'won' || r.status === 'lost'
+        r => isRecipientStatus(r.status) && (r.status === 'won' || r.status === 'lost')
       );
       
       // Calculate effective bet status
@@ -230,7 +242,7 @@ export const useBetDetails = (betId?: string, refresh?: number) => {
         }
       }
       
-      // Fetch bet recipients without any join
+      // Fetch bet recipients
       const { data: recipientsData, error: recipientsError } = await supabase
         .from('bet_recipients')
         .select('*')
@@ -242,28 +254,39 @@ export const useBetDetails = (betId?: string, refresh?: number) => {
         return;
       }
       
-      // Fetch profile information for each recipient
-      let recipients = recipientsData || [];
+      // Use an empty array if no recipients exist
+      const recipients = recipientsData ?? [];
       
+      // Only fetch profiles if we have recipients
       if (recipients.length > 0) {
-        // Get all unique recipient IDs
-        const recipientIds = [...new Set(recipients.map(r => r.recipient_id))];
+        // Get unique recipient IDs (filter out nulls/undefined)
+        const recipientIds = [...new Set(
+          recipients
+            .map(r => r.recipient_id)
+            .filter(Boolean)
+        )];
         
-        // Fetch profiles for all recipients in a single query
-        const { data: profilesData } = await supabase
-          .from('profiles')
-          .select('*')
-          .in('id', recipientIds);
-        
-        if (profilesData) {
-          // Add profile data to each recipient
-          recipients = recipients.map(recipient => {
-            const profile = profilesData.find(p => p.id === recipient.recipient_id);
-            return {
-              ...recipient,
-              profile: profile || null
-            };
-          });
+        if (recipientIds.length > 0) {
+          // Fetch all profiles in a single query
+          const { data: profilesData } = await supabase
+            .from('profiles')
+            .select('*')
+            .in('id', recipientIds);
+          
+          // Add profile data to recipients if profiles were found
+          if (profilesData?.length) {
+            // Create a Map for faster lookups
+            const profileMap = new Map(
+              profilesData.map(profile => [profile.id, profile])
+            );
+            
+            // Enhance recipients with profile data
+            recipients.forEach(recipient => {
+              if (recipient.recipient_id) {
+                recipient.profile = profileMap.get(recipient.recipient_id) || null;
+              }
+            });
+          }
         }
       }
       

@@ -11,7 +11,7 @@ type BetHeaderProps = {
   onCancel?: () => void;
 };
 
-const BetHeader: React.FC<BetHeaderProps> = ({
+const BetHeader: React.FC<BetHeaderProps> = memo(({
   title,
   canDelete = false,
   canCancel = false,
@@ -19,9 +19,6 @@ const BetHeader: React.FC<BetHeaderProps> = ({
   onDelete,
   onCancel
 }) => {
-  // Determine if there are any action buttons
-  const hasActions = canDelete || canCancel;
-  
   return (
     <View style={styles.header}>
       {/* Left side */}
@@ -36,25 +33,23 @@ const BetHeader: React.FC<BetHeaderProps> = ({
       
       {/* Right side - maintain same width as left side for balance */}
       <View style={styles.sideContainer}>
-        {hasActions && (
-          <View style={styles.actions}>
-            {canCancel && (
-              <TouchableOpacity onPress={onCancel} style={styles.actionButton}>
-                <Ionicons name="close-circle-outline" size={24} color="white" />
-              </TouchableOpacity>
-            )}
-            
-            {canDelete && (
-              <TouchableOpacity onPress={onDelete} style={styles.actionButton}>
-                <Ionicons name="trash-outline" size={24} color="white" />
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
+        <View style={styles.actions}>
+          {canCancel && onCancel && (
+            <TouchableOpacity onPress={onCancel} style={styles.actionButton}>
+              <Ionicons name="close-circle-outline" size={24} color="white" />
+            </TouchableOpacity>
+          )}
+          
+          {canDelete && onDelete && (
+            <TouchableOpacity onPress={onDelete} style={styles.actionButton}>
+              <Ionicons name="trash-outline" size={24} color="white" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   header: {
@@ -88,4 +83,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default memo(BetHeader); 
+export default BetHeader; 
