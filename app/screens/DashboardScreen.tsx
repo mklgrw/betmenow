@@ -21,6 +21,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../services/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { formatDistanceToNow } from 'date-fns';
+import ProfileAvatar from '../components/ProfileAvatar';
 
 type StatisticSummary = {
   totalWon: number;
@@ -508,17 +509,13 @@ const DashboardScreen = () => {
     return (
       <View style={styles.profileContainer}>
         <View style={styles.profileHeader}>
-          <View style={styles.avatarContainer}>
-            {userProfile.avatarUrl ? (
-              <Image source={{ uri: userProfile.avatarUrl }} style={styles.avatarImage} />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarText}>
-                  {(userProfile.display_name || userProfile.username || '?')[0].toUpperCase()}
-                </Text>
-              </View>
-            )}
-          </View>
+          <ProfileAvatar
+            size={80}
+            avatarUrl={userProfile.avatarUrl}
+            displayName={userProfile.display_name}
+            username={userProfile.username}
+            userId={userProfile.id}
+          />
           <View style={styles.profileInfo}>
             <Text style={styles.profileName}>
               {userProfile.display_name || userProfile.username}
@@ -729,7 +726,22 @@ const DashboardScreen = () => {
                   onPress={() => item.betId && navigation.navigate('BetDetails', { betId: item.betId })}
                 >
                   <View style={styles.activityHeader}>
-                    <Text style={styles.activityDescription}>{item.description}</Text>
+                    <View style={styles.activityCreatorContainer}>
+                      <ProfileAvatar
+                        size={36}
+                        avatarUrl={item.creator.avatar_url}
+                        displayName={item.creator.display_name}
+                        username={item.creator.username}
+                        userId={item.creator.id}
+                        backgroundColor="#6B46C1"
+                      />
+                      <View style={styles.activityTextContainer}>
+                        <Text style={styles.activityDescription}>{item.description}</Text>
+                        <Text style={styles.activityCreatorName}>
+                          {item.creator.display_name || item.creator.username || 'Unknown User'}
+                        </Text>
+                      </View>
+                    </View>
                     <Text style={styles.activityAmount}>${item.amount}</Text>
                   </View>
                   <View style={styles.activityFooter}>
@@ -799,40 +811,24 @@ const styles = StyleSheet.create({
   profileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  avatarContainer: {
-    marginRight: 16,
-  },
-  avatarImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-  },
-  avatarPlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#6B46C1',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    color: '#FFF',
-    fontSize: 32,
-    fontWeight: '600',
+    marginBottom: 20,
   },
   profileInfo: {
     flex: 1,
+    marginLeft: 15,
   },
   profileName: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#FFF',
-    marginBottom: 4,
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  profileYouText: {
+    color: '#999999',
+    fontWeight: 'normal',
   },
   username: {
-    fontSize: 16,
-    color: '#999',
+    color: '#AAAAAA',
+    fontSize: 14,
   },
   editButton: {
     flexDirection: 'row',
@@ -990,6 +986,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 12,
+  },
+  activityCreatorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  activityTextContainer: {
+    marginLeft: 10,
+    flex: 1,
+  },
+  activityCreatorName: {
+    fontSize: 12,
+    color: '#AAAAAA',
+    marginTop: 2,
   },
   activityDescription: {
     flex: 1,

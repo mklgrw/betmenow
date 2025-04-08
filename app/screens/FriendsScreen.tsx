@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,8 @@ import {
   SafeAreaView,
   Alert,
   Linking,
-  Image
+  Image,
+  Share
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 // @ts-ignore - There's an issue with moduleResolution for @react-navigation/native
@@ -17,6 +18,8 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { supabase, createUsersTable, createFriendshipsTable } from '../services/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFriends } from '../context/FriendsContext';
+import ProfileAvatar from '../components/ProfileAvatar';
 
 type AppContact = {
   id: string;
@@ -360,16 +363,14 @@ const FriendsScreen = () => {
         style={styles.contactItem} 
         onPress={() => viewUserProfile(contact.id)}
       >
-        <View style={styles.contactAvatar}>
-          {contact.avatarUrl ? (
-            <Image 
-              source={{ uri: contact.avatarUrl }} 
-              style={styles.avatarImage} 
-            />
-          ) : (
-            <Text style={styles.contactInitial}>{contact.name.charAt(0).toUpperCase()}</Text>
-          )}
-        </View>
+        <ProfileAvatar
+          size={50}
+          avatarUrl={contact.avatarUrl}
+          displayName={contact.name}
+          username={contact.username}
+          userId={contact.id}
+          backgroundColor={section === 'friends' ? '#6B46C1' : '#555555'}
+        />
         <View style={styles.contactInfo}>
           <Text style={styles.contactName}>{contact.name}</Text>
           <Text style={styles.contactDetail}>
@@ -592,42 +593,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: '#2A2A2A',
-    borderRadius: 12,
-    marginBottom: 8,
-  },
-  contactAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#6B46C1',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  avatarImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-  },
-  contactInitial: {
-    fontSize: 20,
-    color: '#FFFFFF',
-    fontWeight: 'bold',
+    backgroundColor: '#1E1E1E',
+    marginBottom: 10,
+    borderRadius: 8,
   },
   contactInfo: {
     flex: 1,
-    marginRight: 12,
+    marginLeft: 15,
   },
   contactName: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#FFFFFF',
-    marginBottom: 4,
+    marginBottom: 3,
   },
   contactDetail: {
     fontSize: 14,
-    color: '#AAAAAA',
+    color: '#BBBBBB',
   },
   loader: {
     marginTop: 40,

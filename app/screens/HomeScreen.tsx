@@ -21,6 +21,8 @@ import { useBets, ProcessedBet } from '../context/BetContext';
 import { supabase, createBetsTable, createBetRecipientsTable, createTableWithSQL, createBetStatusTrigger } from '../services/supabase';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { NavigationProp } from '@react-navigation/native';
+import ProfileAvatar from '../components/ProfileAvatar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Define route parameter types
 type RouteParams = {
@@ -77,6 +79,8 @@ const HomeScreen = () => {
     onRefresh 
   } = useBets();
 
+  const [userAvatar, setUserAvatar] = useState<string | null>(null);
+
   // Check for activeTab parameter from IssueBetScreen
   useEffect(() => {
     if (activeTabParam && activeTabParam !== activeTab) {
@@ -122,6 +126,22 @@ const HomeScreen = () => {
       return unsubscribe;
     }
   }, [navigation, user]);
+
+  // Add effect to load the user's avatar
+  useEffect(() => {
+    const loadUserAvatar = async () => {
+      if (user?.id) {
+        try {
+          const avatarUrl = await AsyncStorage.getItem(`user_avatar_${user.id}`);
+          setUserAvatar(avatarUrl);
+        } catch (error) {
+          console.error('Error loading user avatar:', error);
+        }
+      }
+    };
+    
+    loadUserAvatar();
+  }, [user?.id]);
 
   const confirmDeleteBet = (betId: string) => {
     Alert.alert(
@@ -298,9 +318,12 @@ const HomeScreen = () => {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Your Bets</Text>
         <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
-          <Image 
-            source={{ uri: 'https://via.placeholder.com/50' }} 
-            style={styles.profileImage} 
+          <ProfileAvatar
+            size={40}
+            avatarUrl={userAvatar}
+            displayName={user?.email?.split('@')[0]}
+            username={user?.email?.split('@')[0]}
+            userId={user?.id}
           />
         </TouchableOpacity>
       </View>
@@ -376,11 +399,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 24,
     fontWeight: 'bold',
-  },
-  profileImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
   },
   searchContainer: {
     flexDirection: 'row',

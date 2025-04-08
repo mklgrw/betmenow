@@ -13,11 +13,13 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 // @ts-ignore - There's an issue with moduleResolution for @react-navigation/native
 import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ProfileAvatar from '../components/ProfileAvatar';
 
 // User type for leaderboard entries
 type LeaderboardUser = {
@@ -50,6 +52,13 @@ enum SortOption {
   TOTAL_BETS = 'total_bets'
 }
 
+// Add navigation type
+type RootStackParamList = {
+  Dashboard: { userId?: string };
+};
+
+type NavigationProp = StackNavigationProp<RootStackParamList, 'Dashboard'>;
+
 const LeaderboardScreen = () => {
   const [users, setUsers] = useState<LeaderboardUser[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<LeaderboardUser[]>([]);
@@ -59,7 +68,7 @@ const LeaderboardScreen = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp>();
   const theme = useTheme();
   const { user } = useAuth();
 
@@ -358,18 +367,15 @@ const LeaderboardScreen = () => {
           </View>
           
           <View style={styles.avatarContainer}>
-            {item.avatarUrl ? (
-              <Image 
-                source={{ uri: item.avatarUrl }} 
-                style={styles.avatarImage} 
-              />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarInitial}>
-                  {(item.display_name || item.username || '?')[0].toUpperCase()}
-                </Text>
-              </View>
-            )}
+            <ProfileAvatar
+              size={40}
+              avatarUrl={item.avatarUrl}
+              displayName={item.display_name}
+              username={item.username}
+              userId={item.id}
+              backgroundColor="rgba(255, 255, 255, 0.2)"
+              textColor="#FFFFFF"
+            />
           </View>
           
           <View style={styles.userInfo}>

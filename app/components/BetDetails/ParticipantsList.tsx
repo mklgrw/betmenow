@@ -1,7 +1,9 @@
-import React, { memo, useCallback, useMemo } from 'react';
+import React, { memo, useCallback, useMemo, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Bet, BetRecipient } from '../../types/betTypes';
+import { Bet, BetRecipient, Profile } from '../../types/betTypes';
+import ProfileAvatar from '../ProfileAvatar';
+import { getAvatarUrl } from '../../services/supabase';
 
 type ParticipantsListProps = {
   bet: Bet;
@@ -18,11 +20,59 @@ const ParticipantsList: React.FC<ParticipantsListProps> = ({
   onReminder,
   onUserPress
 }) => {
+  // State to store resolved avatar URLs
+  const [creatorAvatarUrl, setCreatorAvatarUrl] = useState<string | null>(null);
+  const [recipientAvatarUrls, setRecipientAvatarUrls] = useState<Record<string, string | null>>({});
+
+  // Load creator avatar when bet changes
+  useEffect(() => {
+    if (bet?.creator_id) {
+      getAvatarUrl(bet.creator_id).then(url => {
+        if (url) setCreatorAvatarUrl(url);
+      });
+    }
+  }, [bet?.creator_id]);
+
+  // Load recipient avatars when recipients change
+  useEffect(() => {
+    if (recipients && recipients.length > 0) {
+      const loadAvatars = async () => {
+        const avatarPromises = recipients.map(async recipient => {
+          if (recipient.recipient_id) {
+            const url = await getAvatarUrl(recipient.recipient_id);
+            return { id: recipient.recipient_id, url };
+          }
+          return { id: '', url: null };
+        });
+
+        const results = await Promise.all(avatarPromises);
+        const urlMap: Record<string, string | null> = {};
+        results.forEach(result => {
+          if (result.id) urlMap[result.id] = result.url;
+        });
+
+        setRecipientAvatarUrls(urlMap);
+      };
+
+      loadAvatars();
+    }
+  }, [recipients]);
+
   // Helper function to capitalize first letter
   const capitalizeFirstLetter = useCallback((string: string) => {
     return string.charAt(0).toUpperCase() + string.slice(1);
   }, []);
 
+  // Helper function to get consistent user display name
+  const getUserDisplayName = useCallback((
+    profile?: Profile | null, 
+    userId?: string
+  ): string => {
+    if (profile?.display_name) return profile.display_name;
+    if (profile?.username) return profile.username;
+    return userId ? `User ${userId.slice(0, 8)}` : 'Unknown User';
+  }, []);
+  
   // Memoized empty state view
   const emptyStateView = useMemo(() => (
     <View style={styles.noRecipientContainer}>
@@ -50,20 +100,11 @@ const ParticipantsList: React.FC<ParticipantsListProps> = ({
   const renderCreator = useCallback(() => {
     if (!bet) return null;
     
-    // Get creator data from bet.creator property
-    const creatorData = bet.creator;
+    // Get consistent creator name
+    const creatorName = getUserDisplayName(bet.creator, bet.creator_id);
     
-    // Get creator name with better fallbacks
-    const creatorName = creatorData?.display_name || 
-                       creatorData?.username || 
-                       bet.creator?.display_name ||
-                       bet.creator?.username ||
-                       `Challenger ${bet.creator_id?.slice(0, 8) || ''}`;
-    
-    // Get avatar initial
-    const creatorInitial = (creatorData?.display_name?.charAt(0) || 
-                           creatorData?.username?.charAt(0) || 
-                           creatorName.charAt(0) || 'C').toUpperCase();
+    // Use resolved avatar URL from state if available, otherwise fall back to the profile
+    const avatarUrl = creatorAvatarUrl || bet.creator?.avatar_url;
     
     return (
       <TouchableOpacity 
@@ -72,9 +113,14 @@ const ParticipantsList: React.FC<ParticipantsListProps> = ({
         onPress={handleUserPress(bet.creator_id)}
         activeOpacity={0.7}
       >
-        <View style={[styles.avatarContainer, styles.challengerAvatar]}>
-          <Text style={styles.avatarText}>{creatorInitial}</Text>
-        </View>
+        <ProfileAvatar
+          size={40}
+          avatarUrl={avatarUrl}
+          displayName={bet.creator?.display_name}
+          username={bet.creator?.username}
+          userId={bet.creator_id}
+          backgroundColor="#2196F3"
+        />
         <View style={styles.recipientInfo}>
           <View style={styles.recipientNameContainer}>
             <Text style={styles.recipientName}>{creatorName}</Text>
@@ -86,7 +132,7 @@ const ParticipantsList: React.FC<ParticipantsListProps> = ({
         </View>
       </TouchableOpacity>
     );
-  }, [bet, handleUserPress]);
+  }, [bet, creatorAvatarUrl, handleUserPress, getUserDisplayName]);
 
   // Render a recipient - with useCallback for optimization
   const renderRecipient = useCallback((item: BetRecipient) => {
@@ -102,12 +148,13 @@ const ParticipantsList: React.FC<ParticipantsListProps> = ({
     else if (item.status === 'lost') statusColor = "#FF5722";
     else if (item.status === 'rejected') statusColor = "#F44336";
     
-    // Get the username with better fallbacks (profile not profiles)
-    const displayName = item.profiles?.display_name || item.profiles?.username || item.display_name;
-    const username = displayName || `User ${item.recipient_id?.slice(0, 8) || ''}`;
+    // Get consistent display name using preferred 'profile' field
+    const username = getUserDisplayName(item.profile || item.profiles, item.recipient_id);
     
-    // Get first initial for avatar
-    const firstInitial = (displayName?.charAt(0) || username.charAt(0) || 'U').toUpperCase();
+    // Use resolved avatar URL from state if available, otherwise fall back to the profile
+    const avatarUrl = item.recipient_id ? 
+      recipientAvatarUrls[item.recipient_id] || item.profile?.avatar_url || item.profiles?.avatar_url :
+      null;
     
     return (
       <TouchableOpacity 
@@ -116,9 +163,14 @@ const ParticipantsList: React.FC<ParticipantsListProps> = ({
         onPress={item.recipient_id ? handleUserPress(item.recipient_id) : undefined}
         activeOpacity={0.7}
       >
-        <View style={[styles.avatarContainer, styles.recipientAvatarStyle]}>
-          <Text style={styles.avatarText}>{firstInitial}</Text>
-        </View>
+        <ProfileAvatar
+          size={40}
+          avatarUrl={avatarUrl}
+          displayName={item.profile?.display_name || item.profiles?.display_name}
+          username={item.profile?.username || item.profiles?.username}
+          userId={item.recipient_id}
+          backgroundColor="#6B46C1"
+        />
         <View style={styles.recipientInfo}>
           <View style={styles.recipientNameContainer}>
             <Text style={styles.recipientName}>{username}</Text>
@@ -141,7 +193,7 @@ const ParticipantsList: React.FC<ParticipantsListProps> = ({
         )}
       </TouchableOpacity>
     );
-  }, [bet, capitalizeFirstLetter, handleUserPress, handleReminder, isCreator]);
+  }, [bet, capitalizeFirstLetter, handleUserPress, handleReminder, isCreator, getUserDisplayName, recipientAvatarUrls]);
 
   // Memoized list of recipients
   const recipientItems = useMemo(() => {
@@ -175,32 +227,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
-  },
-  avatarContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#6B46C1',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  avatarText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  challengerAvatar: {
-    backgroundColor: '#2196F3',
-  },
-  recipientAvatarStyle: {
-    backgroundColor: '#6B46C1',
+    paddingHorizontal: 4,
   },
   recipientInfo: {
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginLeft: 12,
   },
   recipientNameContainer: {
     flexDirection: 'row',

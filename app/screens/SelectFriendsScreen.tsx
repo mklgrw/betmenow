@@ -18,6 +18,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../context/AuthContext';
 import { supabase, createUsersTable, createFriendshipsTable } from '../services/supabase';
+import ProfileAvatar from '../components/ProfileAvatar';
 
 type AppContact = {
   id: string;
@@ -387,9 +388,12 @@ const SelectFriendsScreen = () => {
       style={styles.contactItem} 
       onPress={() => selectContact(contact.id, contact.name)}
     >
-      <View style={styles.contactAvatar}>
-        <Text style={styles.contactInitial}>{contact.name.charAt(0).toUpperCase()}</Text>
-      </View>
+      <ProfileAvatar
+        size={48}
+        displayName={contact.name}
+        username={contact.username}
+        userId={contact.id}
+      />
       <View style={styles.contactInfo}>
         <Text style={styles.contactName}>{contact.name}</Text>
         <Text style={styles.contactDetail}>
@@ -615,26 +619,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#1E1E1E',
     borderRadius: 12,
-    marginBottom: 8,
-  },
-  contactAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#6B46C1',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  contactInitial: {
-    fontSize: 20,
-    color: '#FFFFFF',
-    fontWeight: 'bold',
+    marginBottom: 10,
   },
   contactInfo: {
     flex: 1,
+    marginLeft: 16,
   },
   contactName: {
     fontSize: 16,

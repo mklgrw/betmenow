@@ -9,6 +9,7 @@ import { supabase, uploadAvatar } from '../services/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import ProfileAvatar from '../components/ProfileAvatar';
 
 const ProfileScreen = () => {
   const navigation = useNavigation();
@@ -60,7 +61,22 @@ const ProfileScreen = () => {
         
         // Set avatar URL from database
         if (data.avatar_url) {
+          console.log("Setting avatar URL from database:", data.avatar_url);
           setAvatarUrl(data.avatar_url);
+        } else {
+          // Try to get avatar URL from AsyncStorage
+          console.log("No avatar URL in database, checking AsyncStorage");
+          try {
+            const storedAvatarUrl = await AsyncStorage.getItem(`user_avatar_${user?.id}`);
+            if (storedAvatarUrl) {
+              console.log("Setting avatar URL from AsyncStorage:", storedAvatarUrl);
+              setAvatarUrl(storedAvatarUrl);
+            } else {
+              console.log("No avatar URL found in AsyncStorage");
+            }
+          } catch (error) {
+            console.error("Error retrieving avatar URL from AsyncStorage:", error);
+          }
         }
       }
     } catch (error) {
@@ -111,7 +127,9 @@ const ProfileScreen = () => {
         to: tempFilePath
       });
       
-      // Upload the image
+      console.log('Starting avatar upload with temp file:', tempFilePath);
+      
+      // Upload the image - this function now handles database update and AsyncStorage
       const result = await uploadAvatar(tempFilePath, user.id);
       
       // Type assertion for the result
@@ -124,13 +142,36 @@ const ProfileScreen = () => {
       // Clean up temp file
       await FileSystem.deleteAsync(tempFilePath, { idempotent: true });
       
-      // Update avatar URL in state and storage
+      console.log('Avatar upload successful, URL:', uploadResult.url);
+      
+      // Update avatar URL in state
       setAvatarUrl(uploadResult.url);
-      await AsyncStorage.setItem(`user_avatar_${user.id}`, uploadResult.url);
       
-      // Update profile in database
-      await saveProfileChanges();
+      // The uploadAvatar function now handles updating AsyncStorage and the database,
+      // so we don't need to duplicate that functionality here
       
+      // Refresh user data in context
+      await refreshUser();
+      
+      console.log('Profile avatar updated successfully. Verifying state...');
+      
+      // Diagnostic check to verify avatar is accessible
+      const storedAvatar = await AsyncStorage.getItem(`user_avatar_${user.id}`);
+      console.log('Avatar in AsyncStorage:', storedAvatar);
+      
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('avatar_url')
+        .eq('id', user.id)
+        .single();
+        
+      if (userError) {
+        console.error('Error verifying avatar URL in database:', userError);
+      } else {
+        console.log('Avatar in database:', userData?.avatar_url);
+      }
+      
+      Alert.alert('Success', 'Profile picture updated successfully');
     } catch (error: any) {
       console.error('Error in upload process:', error);
       Alert.alert('Error', `Failed to update profile picture: ${error.message || 'Unknown error'}`);
@@ -206,22 +247,15 @@ const ProfileScreen = () => {
               onPress={pickImage}
               disabled={uploadingImage}
             >
-              {uploadingImage ? (
-                <View style={styles.avatarUploadingContainer}>
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                </View>
-              ) : avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>
-                    {((displayName || user?.email || 'U').charAt(0).toUpperCase())}
-                  </Text>
-                </View>
-              )}
-              <View style={styles.editIconContainer}>
-                <Ionicons name="camera" size={16} color="#FFFFFF" />
-              </View>
+              <ProfileAvatar 
+                size={100}
+                avatarUrl={avatarUrl}
+                displayName={displayName}
+                username={user?.email?.split('@')[0] || ''}
+                userId={user?.id}
+                isLoading={uploadingImage}
+                showEditButton={true}
+              />
             </TouchableOpacity>
             
             {/* Display Name - Editable */}
@@ -371,45 +405,10 @@ const styles = StyleSheet.create({
     paddingVertical: 30,
   },
   avatarContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    position: 'relative',
-    marginBottom: 15,
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#6B46C1',
-    justifyContent: 'center',
+    alignSelf: 'center',
+    marginVertical: 20,
     alignItems: 'center',
-  },
-  avatarUploadingContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(107, 70, 193, 0.7)',
     justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    color: '#FFFFFF',
-    fontSize: 40,
-    fontWeight: 'bold',
-  },
-  editIconContainer: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#6B46C1',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#000000',
   },
   displayNameContainer: {
     flexDirection: 'row',

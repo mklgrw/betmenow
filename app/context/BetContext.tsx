@@ -152,8 +152,8 @@ const filterBets = (bets: Bet[], tab: string, query: string, userId?: string): B
   } else {
     // Default: show all bets
     filteredBets = bets;
-  }
-  
+    }
+    
   // Then apply search query filter if it exists
   if (query) {
     const searchQuery = query.toLowerCase();
@@ -176,7 +176,7 @@ function betReducer(state: BetState, action: BetAction): BetState {
       };
     case 'FETCH_BETS_SUCCESS': {
       const bets = action.payload;
-      
+
       // Filter bets into categories
       const pendingBets = bets.filter(bet => bet.status === 'pending');
       const activeBets = bets.filter(bet => bet.status === 'in_progress');
@@ -228,7 +228,7 @@ function betReducer(state: BetState, action: BetAction): BetState {
         refreshing: false,
         lastUpdated: Date.now()
       };
-    }
+      }
     case 'FETCH_BETS_ERROR':
       return {
         ...state,
@@ -360,7 +360,7 @@ export const BetProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         `)
         .eq('creator_id', user.id)
         .order('created_at', { ascending: false });
-      
+        
       if (createdError) {
         console.error("Error fetching created bets:", createdError);
         dispatch({ type: 'FETCH_BETS_ERROR', payload: createdError.message });
@@ -376,7 +376,7 @@ export const BetProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         `)
         .eq('recipient_id', user.id)
         .order('created_at', { ascending: false });
-      
+        
       if (recipientError) {
         console.error("Error fetching recipient bets:", recipientError);
         dispatch({ type: 'FETCH_BETS_ERROR', payload: recipientError.message });
@@ -413,7 +413,7 @@ export const BetProvider: React.FC<{children: ReactNode}> = ({ children }) => {
           if (!item.bets) return;
           
           const bet = item.bets as Bet;
-          
+            
           // Create standardized bet object
           const processedBet: Bet = {
             ...bet,
@@ -455,7 +455,7 @@ export const BetProvider: React.FC<{children: ReactNode}> = ({ children }) => {
     dispatch({ type: 'SET_REFRESHING', payload: true });
     fetchBets();
   }, [fetchBets]);
-  
+      
   // Delete bet
   const deleteBet = useCallback(async (betId: string) => {
     try {
@@ -514,7 +514,7 @@ export const BetProvider: React.FC<{children: ReactNode}> = ({ children }) => {
       Alert.alert("Error", "An unexpected error occurred");
     }
   }, [fetchBets]);
-  
+
   // Force a refresh of the state without fetching new data
   const refreshBets = useCallback(() => {
     dispatch({ type: 'REFRESH_STATE' });

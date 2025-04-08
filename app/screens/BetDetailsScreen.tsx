@@ -80,8 +80,8 @@ const BetDetailsScreen = () => {
     user,
     fetchBetDetails,
     fetchBets
-  });
-
+          });
+          
   // Calculate action permissions - memoized to avoid recalculations
   const actionPermissions = useMemo((): {
     canDeleteBet: boolean;
@@ -114,7 +114,7 @@ const BetDetailsScreen = () => {
       navigation.navigate('EditBet', { bet });
     }
   }, [navigation, bet]);
-  
+      
   // Loading and error states
   if (loading) {
     return (

@@ -233,7 +233,7 @@ export const useBetDetails = (betId?: string, refresh?: number) => {
       if (bet.creator_id) {
         const { data: creatorData } = await supabase
           .from('users')
-          .select('*')
+          .select('id, username, display_name, avatar_url, email')
           .eq('id', bet.creator_id)
           .single();
           
@@ -270,7 +270,7 @@ export const useBetDetails = (betId?: string, refresh?: number) => {
           // Fetch all profiles in a single query
           const { data: profilesData } = await supabase
             .from('users')
-            .select('*')
+            .select('id, username, display_name, avatar_url, email')
             .in('id', recipientIds);
           
           // Add profile data to recipients if profiles were found
@@ -283,7 +283,9 @@ export const useBetDetails = (betId?: string, refresh?: number) => {
             // Enhance recipients with profile data
             recipients.forEach(recipient => {
               if (recipient.recipient_id) {
-                recipient.profiles = profileMap.get(recipient.recipient_id) || null;
+                recipient.profile = profileMap.get(recipient.recipient_id) || null;
+                // For backward compatibility, retain profiles but prefer using profile (singular)
+                recipient.profiles = recipient.profile;
               }
             });
           }

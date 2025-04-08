@@ -235,7 +235,7 @@ export const uploadAvatar = async (uri: string, userId: string) => {
     try {
       console.log('Starting XMLHttpRequest upload with uri:', uri);
       
-      // Generate a simple unique filename
+      // Generate a simple unique filename - IMPORTANT: Don't include "avatar_" prefix in the filename
       const fileName = `${userId}_${Date.now()}.jpg`;
       console.log('Using filename:', fileName);
       
@@ -267,15 +267,29 @@ export const uploadAvatar = async (uri: string, userId: string) => {
         if (xhr.status >= 200 && xhr.status < 300) {
           console.log('Upload successful, response:', xhr.responseText);
           
-          // Construct the public URL
+          // Construct the public URL - ensure it matches exactly how the file is stored
           const publicUrl = `${supabaseUrl}/storage/v1/object/public/avatars/${fileName}`;
           console.log('Public URL:', publicUrl);
           
-          // Store in AsyncStorage for persistence
+          // Store in AsyncStorage for persistence and immediate usage
           if (userId) {
             AsyncStorage.setItem(`user_avatar_${userId}`, publicUrl)
               .catch(err => console.error('Error storing avatar URL:', err));
           }
+          
+          // Update user record in the database with the avatar URL
+          // This ensures the avatar is accessible throughout the app
+          supabase
+            .from('users')
+            .update({ avatar_url: publicUrl })
+            .eq('id', userId)
+            .then(({error}) => {
+              if (error) {
+                console.error('Error updating avatar URL in database:', error);
+              } else {
+                console.log('Successfully updated avatar URL in database');
+              }
+            });
           
           resolve({ success: true, url: publicUrl });
         } else {
@@ -340,5 +354,47 @@ export const ensureAvatarUrlColumn = async () => {
     }
   } catch (error) {
     console.error('Error checking avatar_url column:', error);
+  }
+};
+
+// Get avatar URL utility function
+export const getAvatarUrl = async (userId: string): Promise<string | null> => {
+  if (!userId) {
+    console.warn('getAvatarUrl called with empty userId');
+    return null;
+  }
+
+  try {
+    // Try AsyncStorage first for fastest response and potentially most up-to-date URL
+    const cachedUrl = await AsyncStorage.getItem(`user_avatar_${userId}`);
+    if (cachedUrl) {
+      console.log('Retrieved cached avatar URL from AsyncStorage:', cachedUrl);
+      return cachedUrl;
+    }
+
+    // If not in AsyncStorage, try to get from database
+    const { data, error } = await supabase
+      .from('users')
+      .select('avatar_url')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      console.error('Error fetching avatar URL from database:', error);
+      return null;
+    }
+
+    if (data?.avatar_url) {
+      console.log('Retrieved avatar URL from database:', data.avatar_url);
+      // Cache the URL in AsyncStorage for future use
+      await AsyncStorage.setItem(`user_avatar_${userId}`, data.avatar_url);
+      return data.avatar_url;
+    }
+
+    console.log('No avatar URL found for user:', userId);
+    return null;
+  } catch (error) {
+    console.error('Error in getAvatarUrl:', error);
+    return null;
   }
 }; 
