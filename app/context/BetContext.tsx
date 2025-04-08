@@ -2,43 +2,17 @@ import React, { createContext, useContext, useReducer, useCallback, useEffect, R
 import { Alert } from 'react-native';
 import { supabase } from '../services/supabase';
 import { useAuth } from './AuthContext';
-import { Bet, BetRecipient } from '../types/betTypes';
+import { Bet, BetRecipient, BetStatus, RecipientStatus, PendingOutcome } from '../types/betTypes';
 
-// Define types for bet data
-export type BetDetails = {
-  id: string;
-  description: string;
-  stake: number;
-  status: string;
-  due_date?: string;
-  created_at: string;
-  creator_id: string;
-};
-
-export type RecipientBet = {
-  id: string;
-  status: string;
-  bet_id: string;
-  pending_outcome?: string | null;
-  recipient_id: string;
-  outcome_claimed_by?: string | null;
-  outcome_claimed_at?: string | null;
-};
-
-export type Profile = {
-  id: string;
-  username: string;
-  avatar_url?: string;
-};
-
+// Define type for processed bet data (used in HomeScreen and DashboardScreen)
 export type ProcessedBet = {
   id: string;
   description: string;
   stake: number;
   timestamp: string;
   commentCount: number;
-  status: 'in_progress' | 'pending' | 'lost' | 'won' | string;
-  pendingOutcome?: string | null;
+  status: BetStatus;
+  pendingOutcome?: PendingOutcome;
   isCreator: boolean;
   recipientId?: string;
   creatorId?: string;
@@ -46,9 +20,10 @@ export type ProcessedBet = {
   isMyOutcome?: 'won' | 'lost' | null; // User-specific outcome for this bet
 };
 
+// Define type for recipient update operations
 export type RecipientUpdate = {
-  status?: string;
-  pending_outcome?: string | null;
+  status?: RecipientStatus;
+  pending_outcome?: PendingOutcome;
   outcome_claimed_by?: string | null;
   outcome_claimed_at?: string | null;
 };
@@ -156,7 +131,7 @@ const filterBets = (bets: Bet[], tab: string, query: string, userId?: string): B
         bet.recipients?.some((r: BetRecipient) => r.status === 'lost');
       
       // Check if this is a bet where the user was a recipient and won directly
-      const isRecipientWin = !bet.is_recipient && 
+      const isRecipientWin = bet.is_recipient && 
         bet.recipients?.some((r: BetRecipient) => r.recipient_id === userId && r.status === 'won');
       
       return isCreatorWin || isRecipientWin;
@@ -169,7 +144,7 @@ const filterBets = (bets: Bet[], tab: string, query: string, userId?: string): B
         bet.recipients?.some((r: BetRecipient) => r.status === 'won');
       
       // Check if this is a bet where the user was a recipient and lost directly
-      const isRecipientLoss = !bet.is_recipient && 
+      const isRecipientLoss = bet.is_recipient && 
         bet.recipients?.some((r: BetRecipient) => r.recipient_id === userId && r.status === 'lost');
       
       return isCreatorLoss || isRecipientLoss;
@@ -408,36 +383,54 @@ export const BetProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         return;
       }
       
-      // Process recipient bets to match the format of created bets
-      const formattedRecipientBets: Bet[] = recipientBets
-        .filter(item => item.bets) // Ensure bet data exists
-        .map(item => {
-          // Add the recipient entry as a recipient property to the bet
-          const bet = item.bets as Bet;
-          if (bet) {
-            bet.recipients = [item];  // Include this recipient
-            bet.is_recipient = true;  // Flag to indicate user is recipient
-          }
-          return bet as Bet;
+      // Create a uniform format for all bet types
+      const allProcessedBets: Bet[] = [];
+      
+      // Process bets where user is creator
+      if (createdBets && createdBets.length > 0) {
+        createdBets.forEach(bet => {
+          // Extract recipients from bet_recipients
+          const recipients = bet.bet_recipients || [];
+          
+          // Create standardized bet object
+          const processedBet: Bet = {
+            ...bet,
+            recipients, // Use recipients instead of bet_recipients for consistency
+            is_recipient: false // Flag to indicate user is creator
+          };
+          
+          // Remove the original bet_recipients to avoid duplication
+          delete processedBet.bet_recipients;
+          
+          allProcessedBets.push(processedBet);
         });
+      }
       
-      // Add recipient data to created bets
-      const enhancedCreatedBets = createdBets?.map(bet => {
-        // Extract recipients for this bet
-        const recipients = bet.bet_recipients || [];
-        // Replace bet_recipients array with recipients array for consistency
-        const { bet_recipients, ...betWithoutRecipients } = bet;
-        return {
-          ...betWithoutRecipients,
-          recipients,
-          is_recipient: false // Flag to indicate user is creator
-        };
-      }) || [];
+      // Process bets where user is a recipient
+      if (recipientBets && recipientBets.length > 0) {
+        recipientBets.forEach(item => {
+          // Ensure bet data exists
+          if (!item.bets) return;
+          
+          const bet = item.bets as Bet;
+          
+          // Create standardized bet object
+          const processedBet: Bet = {
+            ...bet,
+            recipients: [item], // Add this recipient to the recipients array
+            is_recipient: true // Flag to indicate user is recipient
+          };
+          
+          // Remove the original bet_recipients to avoid duplication
+          delete processedBet.bet_recipients;
+          
+          allProcessedBets.push(processedBet);
+        });
+      }
       
-      // Combine and deduplicate bets
-      const allBets = [...enhancedCreatedBets, ...formattedRecipientBets];
+      // Deduplicate bets (in case user is both creator and recipient)
       const uniqueBets = Array.from(
-        new Map(allBets.map(bet => [bet.id, bet])).values()
+        new Map(allProcessedBets.map(bet => [bet.id, bet])).values()
       );
       
       dispatch({ type: 'FETCH_BETS_SUCCESS', payload: uniqueBets });

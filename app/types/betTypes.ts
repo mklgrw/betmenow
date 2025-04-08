@@ -17,11 +17,30 @@ export type Profile = {
   venmo_username?: string;
 };
 
+// Define literal types for bet statuses
+export type BetStatus = 
+  | 'pending'      // waiting for recipients to accept
+  | 'in_progress'  // bet is active and ongoing
+  | 'completed'    // bet has been resolved
+  | 'cancelled';   // bet was cancelled
+
+// Define literal types for recipient statuses
+export type RecipientStatus = 
+  | 'pending'      // recipient hasn't accepted/rejected yet
+  | 'in_progress'  // recipient has accepted, bet is active
+  | 'rejected'     // recipient rejected the bet
+  | 'creator'      // special status for bet creator
+  | 'won'          // recipient won the bet
+  | 'lost';        // recipient lost the bet
+
+// Define literal types for pending outcomes
+export type PendingOutcome = 'won' | 'lost' | null;
+
 export interface Bet {
   id: string;
   description: string;
   stake: number;
-  status: string;
+  status: BetStatus;
   due_date?: string | null;
   created_at: string;
   creator_id: string;
@@ -32,16 +51,16 @@ export interface Bet {
   has_activity?: boolean;
 }
 
-export type BetRecipient = {
+export interface BetRecipient {
   id: string;
   bet_id: string;
   recipient_id?: string;
   user_id?: string;
-  status: string;
+  status: RecipientStatus;
   created_at?: string;
   display_name?: string;
   profiles?: Profile | null;
-  pending_outcome?: string | null;
+  pending_outcome?: PendingOutcome;
   outcome_claimed_by?: string | null;
   outcome_claimed_at?: string | null;
   recipient?: {
@@ -61,11 +80,11 @@ export type BetRecipient = {
     username?: string;
     display_name?: string;
   };
-};
+}
 
 export type RecipientUpdate = {
-  status?: string;
-  pending_outcome?: string | null;
+  status?: RecipientStatus;
+  pending_outcome?: PendingOutcome;
   outcome_claimed_by?: string | null;
   outcome_claimed_at?: string | null;
 };
@@ -75,7 +94,7 @@ export type BetActionParams = {
   recipientId: string | null;
   recipients: BetRecipient[];
   isCreator: boolean;
-  opponentPendingOutcome: string | null;
+  opponentPendingOutcome: PendingOutcome;
   navigation: any;
   user: any;
   fetchBetDetails: () => Promise<void>;

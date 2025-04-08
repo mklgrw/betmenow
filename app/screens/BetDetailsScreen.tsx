@@ -29,7 +29,7 @@ import { useBetDetails } from '../hooks/useBetDetails';
 import { useBetActions } from '../hooks/useBetActions';
 
 // Types
-import { Bet, BetRecipient, RootStackParamList } from '../types/betTypes';
+import { Bet, BetRecipient, RootStackParamList, BetStatus, RecipientStatus, PendingOutcome } from '../types/betTypes';
 
 type BetDetailsScreenNavigationProp = StackNavigationProp<RootStackParamList>;
 
@@ -83,25 +83,32 @@ const BetDetailsScreen = () => {
   });
 
   // Calculate action permissions - memoized to avoid recalculations
-  const actionPermissions = useMemo(() => ({
+  const actionPermissions = useMemo((): {
+    canDeleteBet: boolean;
+    canEditBet: boolean;
+    canAcceptRejectBet: boolean;
+    canDeclareOutcome: boolean;
+    canCancelBet: boolean;
+    canConfirmOutcome: boolean;
+  } => ({
     canDeleteBet: isCreator && bet?.status === 'pending',
     canEditBet: isCreator && bet?.status === 'pending',
-    canAcceptRejectBet: !isCreator && recipientStatus === 'pending',
+    canAcceptRejectBet: !isCreator && recipientStatus === 'pending' && !pendingOutcome,
     canDeclareOutcome: effectiveBetStatus === 'in_progress' && (recipientStatus === 'in_progress' || recipientStatus === 'creator'),
     canCancelBet: isCreator && effectiveBetStatus === 'in_progress',
     canConfirmOutcome: opponentPendingOutcome !== null,
-  }), [isCreator, bet?.status, recipientStatus, effectiveBetStatus, opponentPendingOutcome]);
+  }), [isCreator, bet?.status, recipientStatus, effectiveBetStatus, opponentPendingOutcome, pendingOutcome]);
   
   // Navigation handlers with useCallback to prevent recreations
-  const handleNavigateBack = useCallback(() => {
+  const handleNavigateBack = useCallback((): void => {
     navigation.goBack();
   }, [navigation]);
   
-  const handleNavigateToUser = useCallback((userId: string) => {
+  const handleNavigateToUser = useCallback((userId: string): void => {
     navigation.navigate('Dashboard', { userId });
   }, [navigation]);
   
-  const handleNavigateToEditBet = useCallback(() => {
+  const handleNavigateToEditBet = useCallback((): void => {
     if (bet) {
       navigation.navigate('EditBet', { bet });
     }

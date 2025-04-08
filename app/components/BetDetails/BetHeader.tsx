@@ -19,25 +19,37 @@ const BetHeader: React.FC<BetHeaderProps> = ({
   onDelete,
   onCancel
 }) => {
+  // Determine if there are any action buttons
+  const hasActions = canDelete || canCancel;
+  
   return (
     <View style={styles.header}>
-      <TouchableOpacity onPress={onBack} style={styles.backButton}>
-        <Ionicons name="arrow-back" size={24} color="white" />
-      </TouchableOpacity>
+      {/* Left side */}
+      <View style={styles.sideContainer}>
+        <TouchableOpacity onPress={onBack} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="white" />
+        </TouchableOpacity>
+      </View>
       
+      {/* Title */}
       <Text style={styles.title}>{title}</Text>
       
-      <View style={styles.actions}>
-        {canCancel && (
-          <TouchableOpacity onPress={onCancel} style={styles.actionButton}>
-            <Ionicons name="close-circle-outline" size={24} color="white" />
-          </TouchableOpacity>
-        )}
-        
-        {canDelete && (
-          <TouchableOpacity onPress={onDelete} style={styles.actionButton}>
-            <Ionicons name="trash-outline" size={24} color="white" />
-          </TouchableOpacity>
+      {/* Right side - maintain same width as left side for balance */}
+      <View style={styles.sideContainer}>
+        {hasActions && (
+          <View style={styles.actions}>
+            {canCancel && (
+              <TouchableOpacity onPress={onCancel} style={styles.actionButton}>
+                <Ionicons name="close-circle-outline" size={24} color="white" />
+              </TouchableOpacity>
+            )}
+            
+            {canDelete && (
+              <TouchableOpacity onPress={onDelete} style={styles.actionButton}>
+                <Ionicons name="trash-outline" size={24} color="white" />
+              </TouchableOpacity>
+            )}
+          </View>
         )}
       </View>
     </View>
@@ -48,9 +60,13 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingVertical: 10,
     backgroundColor: '#121212',
+  },
+  sideContainer: {
+    width: 40,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
   backButton: {
     padding: 8,
@@ -64,6 +80,8 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
   },
   actionButton: {
     padding: 8,

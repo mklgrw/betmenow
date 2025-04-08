@@ -2,7 +2,7 @@ import { useState, useReducer, useCallback, useEffect } from 'react';
 import { Alert, Linking } from 'react-native';
 import { supabase } from '../services/supabase';
 import { User } from '@supabase/supabase-js';
-import { Bet, BetRecipient } from '../types/betTypes';
+import { Bet, BetRecipient, BetStatus, RecipientStatus, PendingOutcome } from '../types/betTypes';
 
 // Define state type
 interface BetActionsState {
@@ -66,7 +66,7 @@ interface BetActionsProps {
   recipientId?: string | null;
   recipients?: BetRecipient[];
   isCreator?: boolean;
-  opponentPendingOutcome?: string | null;
+  opponentPendingOutcome?: PendingOutcome;
   navigation: any;
   user: User | null;
   fetchBetDetails: () => void;
@@ -122,9 +122,19 @@ export const useBetActions = ({
   // Helper to update recipient statuses
   const updateRecipientStatuses = useCallback(async (
     myRecipientId: string, 
-    myUpdate: any, 
+    myUpdate: {
+      status?: RecipientStatus;
+      pending_outcome?: PendingOutcome;
+      outcome_claimed_by?: string | null;
+      outcome_claimed_at?: string | null;
+    }, 
     opponentId: string | null, 
-    opponentUpdate: any
+    opponentUpdate: {
+      status?: RecipientStatus;
+      pending_outcome?: PendingOutcome;
+      outcome_claimed_by?: string | null;
+      outcome_claimed_at?: string | null;
+    }
   ) => {
     try {
       // Update my status
@@ -288,478 +298,251 @@ export const useBetActions = ({
     }
   }, [recipientId, fetchBetDetails, fetchBets]);
   
-  // Declare outcome (creator or recipient)
-  const declareBetOutcome = useCallback(async (
-    status: string, 
-    recipientId: string,
-    timestamp: string
-  ) => {
-    try {
-      if (!recipientId) return false;
-      
-      // Set pending outcome for the recipient
-      const { error } = await supabase
-        .from('bet_recipients')
-        .update({
-          pending_outcome: status,
-          outcome_claimed_by: user?.id,
-          outcome_claimed_at: timestamp
-        })
-        .eq('id', recipientId);
-        
-      if (error) {
-        console.error("Error declaring outcome:", error);
-        return false;
-      }
-      
-      return true;
-    } catch (error) {
-      console.error("Error in declareBetOutcome:", error);
-      return false;
-    }
-  }, [user?.id]);
-  
-  // Directly set final outcome (bypassing pending status)
-  const declareFinalOutcome = useCallback(async (
-    betId: string,
-    status: string,
-    timestamp: string
-  ) => {
-    try {
-      if (!betId) return false;
-      
-      // Update the bet status to completed
-      const { error: betError } = await supabase
-        .from('bets')
-        .update({ status: 'completed' })
-        .eq('id', betId);
-        
-      if (betError) {
-        console.error("Error updating bet status:", betError);
-        return false;
-      }
-      
-      return true;
-    } catch (error) {
-      console.error("Error in declareFinalOutcome:", error);
-      return false;
-    }
-  }, []);
-  
-  // Handle declaring win for a bet
+  // Declare winner
   const handleDeclareWin = useCallback(async () => {
     try {
-      dispatch({ type: 'ACTION_START', payload: 'declareWin' });
-      
-      const timestamp = new Date().toISOString();
-      
-      if (recipientId) {
-        // Set own status to pending win
-        const success = await declareBetOutcome('won', recipientId, timestamp);
-        
-        if (!success) {
-          dispatch({ type: 'ACTION_ERROR', payload: 'Failed to declare win' });
-          Alert.alert("Error", "Failed to declare outcome. Please try again.");
-          return;
-        }
-        
-        // Refresh the data
-        await fetchBetDetails();
-        await fetchBets();
-        
-        dispatch({ type: 'ACTION_SUCCESS' });
-        
-        Alert.alert(
-          "Win Claimed",
-          "You've claimed victory for this bet. The other person will need to confirm the outcome."
-        );
-      }
-    } catch (error) {
-      console.error("Error declaring win:", error);
-      dispatch({ type: 'ACTION_ERROR', payload: 'Unexpected error occurred' });
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
-    }
-  }, [recipientId, declareBetOutcome, fetchBetDetails, fetchBets]);
-  
-  // Handle declaring loss for a bet
-  const handleDeclareLoss = useCallback(async () => {
-    try {
-      dispatch({ type: 'ACTION_START', payload: 'declareLoss' });
-      
-      // Handle cases where recipientId might not be available
-      let currentRecipientId = recipientId;
-      
-      if (!currentRecipientId) {
-        // If no recipientId is available but we have recipients, use the first one
-        if (recipients && recipients.length > 0) {
-          currentRecipientId = recipients[0].id;
-        } else if (betId) {
-          // If we have a betId but no recipients, use the betId directly
-          const timestamp = new Date().toISOString();
-          await declareFinalOutcome(betId, 'lost', timestamp);
-          
-          // Refresh the bet lists to ensure correct tab display
-          await fetchBets();
-          
-          // Instead of trying to navigate back, navigate to a specific screen
-          // or use a callback to inform the parent component
-          if (navigation && navigation.canGoBack && navigation.canGoBack()) {
-            navigation.goBack();
-          } else {
-            navigation.navigate('Home');
-          }
-          dispatch({ type: 'ACTION_SUCCESS' });
-          return;
-        } else {
-          console.error("Error: No recipient ID or bet ID available");
-          // Use safer navigation
-          dispatch({ type: 'ACTION_ERROR', payload: 'No recipient ID or bet ID available' });
-          if (navigation && navigation.canGoBack && navigation.canGoBack()) {
-            navigation.goBack();
-          } else {
-            navigation.navigate('Home');
-          }
-          return;
-        }
-      }
-      
-      // Find opponent using the recipient ID
-      const { betId: foundBetId, opponentId } = await findOpponent(currentRecipientId);
-      
-      // Ensure we have a valid bet ID
-      const currentBetId = foundBetId || betId;
-      
-      if (!currentBetId) {
-        console.error("Error: Invalid bet ID");
-        // Use safer navigation
-        dispatch({ type: 'ACTION_ERROR', payload: 'Invalid bet ID' });
-        if (navigation && navigation.canGoBack && navigation.canGoBack()) {
-          navigation.goBack();
-        } else {
-          navigation.navigate('Home');
-        }
+      if (!recipientId) {
+        Alert.alert("Error", "No recipient ID found");
         return;
       }
       
-      // Prepare updates
-      const timestamp = new Date().toISOString();
-      const recipientUpdate = {
-        status: 'lost',
-        pending_outcome: null,
-        outcome_claimed_by: user?.id,
-        outcome_claimed_at: timestamp
-      };
+      dispatch({ type: 'ACTION_START', payload: 'declare-win' });
       
-      const opponentUpdate = {
-        status: 'won',
-        pending_outcome: null,
-        outcome_claimed_by: user?.id,
-        outcome_claimed_at: timestamp
-      };
-      
-      // Update statuses
-      await updateRecipientStatuses(
-        currentRecipientId, 
-        recipientUpdate, 
-        opponentId, 
-        opponentUpdate
-      );
-      
-      // Update the bet status to 'completed' in the database
-      if (currentBetId) {
-        await supabase
-          .from('bets')
-          .update({ status: 'completed' })
-          .eq('id', currentBetId);
+      // Find opponent if not provided
+      let opponentRecipientId: string | null = null;
+      if (recipients && recipients.length > 0) {
+        const opponent = recipients.find(r => r.recipient_id !== user?.id && r.id !== recipientId);
+        opponentRecipientId = opponent?.id || null;
       }
       
-      // Refresh the bet lists to ensure correct tab display
-      await fetchBets();
+      // Update statuses
+      const result = await updateRecipientStatuses(
+        recipientId, 
+        { 
+          status: 'pending' as RecipientStatus, 
+          pending_outcome: 'won' as PendingOutcome, 
+          outcome_claimed_by: user?.id, 
+          outcome_claimed_at: new Date().toISOString() 
+        },
+        opponentRecipientId,
+        { 
+          status: 'pending' as RecipientStatus, 
+          pending_outcome: null
+        }
+      );
+      
+      if (!result) {
+        dispatch({ type: 'ACTION_ERROR', payload: 'Failed to declare win' });
+        return;
+      }
       
       dispatch({ type: 'ACTION_SUCCESS' });
       
-      // Use safer navigation approach
-      if (navigation && navigation.canGoBack && navigation.canGoBack()) {
+      // Refresh bet data
+      fetchBetDetails();
+      fetchBets();
+      
+      Alert.alert(
+        "Success",
+        "You've claimed victory! The other party will need to confirm."
+      );
+    } catch (error) {
+      console.error("Error declaring win:", error);
+      dispatch({ type: 'ACTION_ERROR', payload: 'An unexpected error occurred' });
+      Alert.alert("Error", "Failed to declare win. Please try again.");
+    }
+  }, [recipientId, recipients, user?.id, updateRecipientStatuses, fetchBetDetails, fetchBets]);
+  
+  // Declare loss
+  const handleDeclareLoss = useCallback(async () => {
+    try {
+      if (!recipientId) {
+        Alert.alert("Error", "No recipient ID found");
+        return;
+      }
+      
+      dispatch({ type: 'ACTION_START', payload: 'declare-loss' });
+      
+      // Find opponent if not provided
+      let opponentRecipientId: string | null = null;
+      if (recipients && recipients.length > 0) {
+        const opponent = recipients.find(r => r.recipient_id !== user?.id && r.id !== recipientId);
+        opponentRecipientId = opponent?.id || null;
+      }
+      
+      // Update statuses
+      const result = await updateRecipientStatuses(
+        recipientId, 
+        { 
+          status: 'lost' as RecipientStatus, 
+          pending_outcome: null as PendingOutcome
+        },
+        opponentRecipientId,
+        { 
+          status: 'won' as RecipientStatus, 
+          pending_outcome: null as PendingOutcome
+        }
+      );
+      
+      if (!result) {
+        dispatch({ type: 'ACTION_ERROR', payload: 'Failed to declare loss' });
+        return;
+      }
+      
+      dispatch({ type: 'ACTION_SUCCESS' });
+      
+      // Refresh bet data
+      fetchBetDetails();
+      fetchBets();
+      
+      // For direct loss declaration, navigate back to home to show updated list
+      if (navigation.canGoBack && navigation.canGoBack()) {
         navigation.goBack();
       } else {
         navigation.navigate('Home');
       }
     } catch (error) {
       console.error("Error declaring loss:", error);
-      dispatch({ type: 'ACTION_ERROR', payload: 'Unexpected error occurred' });
-      // Use safer navigation
-      if (navigation && navigation.canGoBack && navigation.canGoBack()) {
-        navigation.goBack();
-      } else {
-        navigation.navigate('Home');
-      }
+      dispatch({ type: 'ACTION_ERROR', payload: 'An unexpected error occurred' });
+      Alert.alert("Error", "Failed to declare loss. Please try again.");
     }
-  }, [
-    betId, 
-    recipientId, 
-    recipients, 
-    navigation, 
-    user?.id, 
-    findOpponent, 
-    updateRecipientStatuses, 
-    declareFinalOutcome, 
-    fetchBets
-  ]);
+  }, [recipientId, recipients, user?.id, updateRecipientStatuses, fetchBetDetails, fetchBets, navigation]);
   
   // Handle confirming a pending outcome
   const handleConfirmOutcome = useCallback(async () => {
-    if (!opponentPendingOutcome) {
-      Alert.alert("Error", "No outcome to confirm");
-      return;
-    }
-    
     try {
-      dispatch({ type: 'ACTION_START', payload: 'confirmOutcome' });
-      
-      // My status is opposite of what opponent claimed
-      const myFinalStatus = opponentPendingOutcome === 'won' ? 'lost' : 'won';
-      const opponentFinalStatus = opponentPendingOutcome;
-      
-      // Handle cases where recipientId might not be available
-      let currentRecipientId = recipientId;
-      let opponentId = null;
-      
-      if (!currentRecipientId) {
-        // If no recipientId is available but we have recipients, use the first one
-        if (recipients && recipients.length > 0) {
-          currentRecipientId = recipients[0].id;
-        } else {
-          Alert.alert("Error", "No recipient ID available");
-          dispatch({ type: 'ACTION_ERROR', payload: 'No recipient ID available' });
-          return;
-        }
-      }
-      
-      // Different logic for creator vs recipient
-      if (isCreator) {
-        // For creators, find the recipient who has a pending outcome
-        const recipientWithPendingOutcome = recipients.find(r => !!r.pending_outcome);
-        if (recipientWithPendingOutcome) {
-          opponentId = recipientWithPendingOutcome.id;
-        } else {
-          console.log("No recipient with pending outcome found");
-        }
-      } else {
-        // For recipients, use the standard findOpponent function
-        const { opponentId: foundOpponentId } = await findOpponent(currentRecipientId);
-        opponentId = foundOpponentId;
-      }
-      
-      if (!betId) {
-        Alert.alert("Error", "Invalid bet ID");
-        dispatch({ type: 'ACTION_ERROR', payload: 'Invalid bet ID' });
+      if (!opponentPendingOutcome || !recipientId) {
+        Alert.alert("Error", "No pending outcome to confirm");
         return;
       }
       
-      if (!opponentId) {
-        Alert.alert("Error", "No opponent found to confirm outcome with");
+      dispatch({ type: 'ACTION_START', payload: 'confirm-outcome' });
+      
+      // Find opponent if not provided
+      let opponentRecipientId: string | null = null;
+      if (recipients && recipients.length > 0) {
+        const opponent = recipients.find(r => 
+          r.pending_outcome !== null && r.id !== recipientId
+        );
+        opponentRecipientId = opponent?.id || null;
+      }
+      
+      if (!opponentRecipientId) {
         dispatch({ type: 'ACTION_ERROR', payload: 'No opponent found' });
+        Alert.alert("Error", "Could not identify opponent");
         return;
       }
       
-      // Prepare updates
-      const recipientUpdate = {
-        status: myFinalStatus,
-        pending_outcome: null
-      };
-      
-      const opponentUpdate = {
-        status: opponentFinalStatus,
-        pending_outcome: null
-      };
+      // Determine outcome status
+      const myStatus = opponentPendingOutcome === 'won' ? 'lost' as RecipientStatus : 'won' as RecipientStatus;
+      const opponentStatus = opponentPendingOutcome === 'won' ? 'won' as RecipientStatus : 'lost' as RecipientStatus;
       
       // Update statuses
-      await updateRecipientStatuses(
-        currentRecipientId, 
-        recipientUpdate, 
-        opponentId, 
-        opponentUpdate
+      const result = await updateRecipientStatuses(
+        recipientId, 
+        { 
+          status: myStatus, 
+          pending_outcome: null as PendingOutcome 
+        },
+        opponentRecipientId,
+        { 
+          status: opponentStatus, 
+          pending_outcome: null as PendingOutcome 
+        }
       );
       
-      // Update the bet status to 'completed' in the database
-      if (betId) {
-        await supabase
-          .from('bets')
-          .update({ status: 'completed' })
-          .eq('id', betId);
+      if (!result) {
+        dispatch({ type: 'ACTION_ERROR', payload: 'Failed to confirm outcome' });
+        return;
       }
-      
-      // Refresh the bet lists to ensure correct tab display
-      await fetchBets();
       
       dispatch({ type: 'ACTION_SUCCESS' });
       
-      // If I'm confirming a loss, open Venmo to pay the bet
-      if (myFinalStatus === 'lost') {
-        // Get winner's Venmo username (my opponent)
-        let winnerVenmoUsername = null;
-        const opponent = recipients.find(r => r.id === opponentId);
-        
-        if (opponent && opponent.profiles) {
-          const opponentUserId = opponent.recipient_id;
-          
-          if (opponentUserId) {
-            // Fetch the winner's Venmo username from the users table
-            const { data: winnerData } = await supabase
-              .from('users')
-              .select('venmo_username')
-              .eq('id', opponentUserId)
-              .single();
-               
-            if (winnerData && winnerData.venmo_username) {
-              winnerVenmoUsername = winnerData.venmo_username;
+      // Refresh bet data
+      fetchBetDetails();
+      fetchBets();
+      
+      Alert.alert(
+        "Success",
+        "Outcome confirmed!",
+        [{ 
+          text: "OK", 
+          onPress: () => {
+            if (navigation.canGoBack && navigation.canGoBack()) {
+              navigation.goBack();
+            } else {
+              navigation.navigate('Home');
             }
-          }
-        }
-        
-        // Try to open Venmo with the payment
-        try {
-          // Get bet details (for stake amount)
-          const { data: betData } = await supabase
-            .from('bets')
-            .select('stake')
-            .eq('id', betId)
-            .single();
-            
-          if (betData) {
-            // Use hardcoded Venmo username if the fetched one is not available
-            const venmoUsername = winnerVenmoUsername || 'S-PBOO'; // Fallback to the test username
-            const note = "Paying bet";
-            const venmoUrl = `venmo://paycharge?txn=pay&recipients=${venmoUsername}&amount=${betData.stake}&note=${note}`;
-            
-            // Try to open Venmo
-            Linking.openURL(venmoUrl).catch(err => {
-              console.error('Error opening Venmo:', err);
-            });
-          }
-        } catch (error) {
-          console.error('Error with Venmo deep linking:', error);
-        }
-        
-        // Show alert and navigate back using safer navigation
-        Alert.alert(
-          "Loss Confirmed",
-          "You've confirmed your loss. Make sure to complete the payment in Venmo.",
-          [{ 
-            text: "OK", 
-            onPress: () => {
-              if (navigation && navigation.canGoBack && navigation.canGoBack()) {
-                navigation.goBack();
-              } else {
-                navigation.navigate('Home');
-              }
-            } 
-          }]
-        );
-      } else {
-        // For confirming a win, just show standard confirmation with safer navigation
-        Alert.alert(
-          "Outcome Confirmed", 
-          `You've confirmed the outcome of this bet.`,
-          [{ 
-            text: "OK", 
-            onPress: () => {
-              if (navigation && navigation.canGoBack && navigation.canGoBack()) {
-                navigation.goBack();
-              } else {
-                navigation.navigate('Home');
-              }
-            } 
-          }]
-        );
-      }
+          } 
+        }]
+      );
     } catch (error) {
       console.error("Error confirming outcome:", error);
-      dispatch({ type: 'ACTION_ERROR', payload: 'Unexpected error occurred' });
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
+      dispatch({ type: 'ACTION_ERROR', payload: 'An unexpected error occurred' });
+      Alert.alert("Error", "Failed to confirm outcome. Please try again.");
     }
-  }, [
-    opponentPendingOutcome,
-    recipientId,
-    recipients,
-    isCreator,
-    betId,
-    findOpponent,
-    updateRecipientStatuses,
-    fetchBets,
-    navigation
-  ]);
+  }, [recipientId, recipients, opponentPendingOutcome, updateRecipientStatuses, fetchBetDetails, fetchBets, navigation]);
   
   // Handle rejecting a claimed outcome
   const handleRejectOutcome = useCallback(async () => {
-    if (!opponentPendingOutcome) {
-      Alert.alert("Error", "No claimed outcome to reject");
-      return;
-    }
-    
     try {
-      dispatch({ type: 'ACTION_START', payload: 'rejectOutcome' });
-      
-      // Find the recipient with a pending outcome
-      let opponentId = null;
-      
-      if (isCreator) {
-        // For creators, directly find recipient with pending outcome
-        const recipientWithPendingOutcome = recipients.find(r => !!r.pending_outcome);
-        if (recipientWithPendingOutcome) {
-          opponentId = recipientWithPendingOutcome.id;
-        }
-      } else if (recipientId) {
-        // For recipients, find creator's recipient record
-        const { opponentId: foundOpponentId } = await findOpponent(recipientId);
-        opponentId = foundOpponentId;
+      if (!opponentPendingOutcome || !recipientId) {
+        Alert.alert("Error", "No pending outcome to reject");
+        return;
       }
       
-      if (!opponentId) {
-        console.error("No opponent found with pending outcome");
+      dispatch({ type: 'ACTION_START', payload: 'reject-outcome' });
+      
+      // Find opponent if not provided
+      let opponentRecipientId: string | null = null;
+      if (recipients && recipients.length > 0) {
+        const opponent = recipients.find(r => 
+          r.pending_outcome !== null && r.id !== recipientId
+        );
+        opponentRecipientId = opponent?.id || null;
+      }
+      
+      if (!opponentRecipientId) {
         dispatch({ type: 'ACTION_ERROR', payload: 'No opponent found' });
-        Alert.alert("Error", "No opponent found with pending outcome");
+        Alert.alert("Error", "Could not identify opponent");
         return;
       }
       
-      // Clear the pending outcome
-      const { error } = await supabase
-        .from('bet_recipients')
-        .update({
-          pending_outcome: null
-        })
-        .eq('id', opponentId);
+      // Update statuses - reset to in_progress
+      const result = await updateRecipientStatuses(
+        recipientId, 
+        { 
+          status: 'in_progress' as RecipientStatus,
+          pending_outcome: null as PendingOutcome
+        },
+        opponentRecipientId,
+        { 
+          status: 'in_progress' as RecipientStatus,
+          pending_outcome: null as PendingOutcome
+        }
+      );
       
-      if (error) {
-        console.error("Error rejecting outcome:", error);
-        dispatch({ type: 'ACTION_ERROR', payload: error.message });
-        Alert.alert("Error", "Failed to reject the outcome. Please try again.");
+      if (!result) {
+        dispatch({ type: 'ACTION_ERROR', payload: 'Failed to reject outcome' });
         return;
       }
-      
-      // Refresh the bet details
-      await fetchBetDetails();
       
       dispatch({ type: 'ACTION_SUCCESS' });
       
-      // Show confirmation
+      // Refresh bet data
+      fetchBetDetails();
+      fetchBets();
+      
       Alert.alert(
         "Outcome Rejected",
-        "You've rejected the claimed outcome. The bet will remain active."
+        "You've rejected the claimed outcome. The bet will continue."
       );
     } catch (error) {
-      console.error("Error in rejectOutcome:", error);
-      dispatch({ type: 'ACTION_ERROR', payload: 'Unexpected error occurred' });
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
+      console.error("Error rejecting outcome:", error);
+      dispatch({ type: 'ACTION_ERROR', payload: 'An unexpected error occurred' });
+      Alert.alert("Error", "Failed to reject outcome. Please try again.");
     }
-  }, [
-    opponentPendingOutcome,
-    isCreator,
-    recipients,
-    recipientId,
-    findOpponent,
-    fetchBetDetails
-  ]);
+  }, [recipientId, recipients, opponentPendingOutcome, updateRecipientStatuses, fetchBetDetails, fetchBets]);
   
   // Handle canceling a bet (for creators only)
   const handleCancelBet = useCallback(async () => {

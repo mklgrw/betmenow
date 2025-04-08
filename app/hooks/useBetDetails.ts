@@ -2,7 +2,7 @@ import React, { useState, useEffect, useReducer, useCallback } from 'react';
 import { Alert } from 'react-native';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
-import { Bet, BetRecipient } from '../types/betTypes';
+import { Bet, BetRecipient, BetStatus, RecipientStatus, PendingOutcome } from '../types/betTypes';
 
 // Define state type
 interface BetDetailsState {
@@ -10,14 +10,14 @@ interface BetDetailsState {
   recipients: BetRecipient[];
   loading: boolean;
   error: string | null;
-  recipientStatus: string;
+  recipientStatus: RecipientStatus | '';
   recipientId: string | null;
   isCreator: boolean;
-  opponentPendingOutcome: string | null;
-  pendingOutcome: string | null;
+  opponentPendingOutcome: PendingOutcome;
+  pendingOutcome: PendingOutcome;
   hasPendingOutcome: boolean;
   hasWonOrLostRecipient: boolean;
-  effectiveBetStatus: string;
+  effectiveBetStatus: BetStatus | 'pending'; // Use 'pending' as default but allow other types
 }
 
 // Define action types
@@ -44,6 +44,26 @@ const initialState: BetDetailsState = {
   effectiveBetStatus: 'pending'
 };
 
+// Helper to safely get recipient status
+const getRecipientStatus = (status: string | undefined): RecipientStatus | '' => {
+  if (!status) return '';
+  
+  const validStatuses: RecipientStatus[] = ['pending', 'in_progress', 'rejected', 'creator', 'won', 'lost'];
+  return validStatuses.includes(status as RecipientStatus) 
+    ? (status as RecipientStatus) 
+    : '';
+};
+
+// Helper to safely get bet status
+const getBetStatus = (status: string | undefined): BetStatus | 'pending' => {
+  if (!status) return 'pending';
+  
+  const validStatuses: BetStatus[] = ['pending', 'in_progress', 'completed', 'cancelled'];
+  return validStatuses.includes(status as BetStatus)
+    ? (status as BetStatus)
+    : 'pending';
+};
+
 // Reducer function
 function betDetailsReducer(state: BetDetailsState, action: BetDetailsAction): BetDetailsState {
   switch (action.type) {
@@ -60,7 +80,7 @@ function betDetailsReducer(state: BetDetailsState, action: BetDetailsAction): Be
       
       // Find recipient record for current user
       const myRecipient = recipients.find(r => r.recipient_id === currentUserId);
-      const recipientStatus = myRecipient?.status || '';
+      const recipientStatus = getRecipientStatus(myRecipient?.status);
       const recipientId = myRecipient?.id || null;
       
       // Check for pending outcomes
@@ -79,8 +99,8 @@ function betDetailsReducer(state: BetDetailsState, action: BetDetailsAction): Be
       );
       
       // Calculate effective bet status
-      let effectiveBetStatus = bet?.status || 'pending';
-      if (hasWonOrLostRecipient) {
+      let effectiveBetStatus = getBetStatus(bet?.status);
+      if (hasWonOrLostRecipient && effectiveBetStatus === 'in_progress') {
         effectiveBetStatus = 'completed';
       }
 
@@ -112,7 +132,7 @@ function betDetailsReducer(state: BetDetailsState, action: BetDetailsAction): Be
       
       // Find recipient record for current user
       const myRecipient = state.recipients.find(r => r.recipient_id === currentUserId);
-      const recipientStatus = myRecipient?.status || '';
+      const recipientStatus = getRecipientStatus(myRecipient?.status);
       const recipientId = myRecipient?.id || null;
       
       // Check for pending outcomes
@@ -131,8 +151,8 @@ function betDetailsReducer(state: BetDetailsState, action: BetDetailsAction): Be
       );
       
       // Calculate effective bet status
-      let effectiveBetStatus = state.bet?.status || 'pending';
-      if (hasWonOrLostRecipient) {
+      let effectiveBetStatus = getBetStatus(state.bet?.status);
+      if (hasWonOrLostRecipient && effectiveBetStatus === 'in_progress') {
         effectiveBetStatus = 'completed';
       }
 
