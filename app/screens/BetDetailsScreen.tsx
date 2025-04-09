@@ -90,15 +90,32 @@ const BetDetailsScreen = () => {
     canDeclareOutcome: boolean;
     canCancelBet: boolean;
     canConfirmOutcome: boolean;
-  } => ({
-    canDeleteBet: isCreator && bet?.status === 'pending',
-    canEditBet: isCreator && bet?.status === 'pending',
-    canAcceptRejectBet: !isCreator && recipientStatus === 'pending' && !pendingOutcome,
-    canDeclareOutcome: effectiveBetStatus === 'in_progress' && 
-      (recipientStatus === 'in_progress' || recipientStatus === 'creator'),
-    canCancelBet: isCreator && effectiveBetStatus === 'in_progress',
-    canConfirmOutcome: !!opponentPendingOutcome,
-  }), [isCreator, bet?.status, recipientStatus, effectiveBetStatus, opponentPendingOutcome, pendingOutcome]);
+  } => {
+    // Check if any opponent (including creator) has a pending win claim
+    const opponentHasPendingWin = recipients.some(r => 
+            r.recipient_id !== user?.id && 
+      r.pending_outcome === 'won'
+    );
+    
+    // Check if the bet itself is still in its initial pending state (not yet accepted)
+    const betRequiresInitialAcceptance = bet?.status === 'pending' && 
+                                        recipients.some(r => r.recipient_id === user?.id && r.status === 'pending');
+    
+    return {
+      canDeleteBet: isCreator && bet?.status === 'pending',
+      canEditBet: isCreator && bet?.status === 'pending',
+      canAcceptRejectBet: !isCreator && 
+                          betRequiresInitialAcceptance && 
+                          !pendingOutcome && 
+                          effectiveBetStatus !== 'in_progress',
+      canDeclareOutcome: effectiveBetStatus === 'in_progress' && 
+        (recipientStatus === 'in_progress' || recipientStatus === 'creator'),
+      canCancelBet: isCreator && effectiveBetStatus === 'in_progress',
+      canConfirmOutcome: (!!opponentPendingOutcome || opponentHasPendingWin) && 
+                         !pendingOutcome && 
+                         effectiveBetStatus !== 'completed',
+    };
+  }, [isCreator, bet?.status, recipientStatus, effectiveBetStatus, opponentPendingOutcome, pendingOutcome, recipients, user?.id]);
   
   // Navigation handlers with useCallback to prevent recreations
   const handleNavigateBack = useCallback((): void => {
@@ -179,22 +196,43 @@ const BetDetailsScreen = () => {
           />
         )}
 
-        {actionPermissions.canConfirmOutcome && (
-          <PendingOutcomeView
-            pendingOutcome={opponentPendingOutcome}
-            isCreator={isCreator}
-            onConfirm={handleConfirmOutcome}
-            onReject={handleRejectOutcome}
-            loading={loading}
-          />
+        {actionPermissions.canConfirmOutcome && effectiveBetStatus !== 'completed' && bet?.status !== 'completed' && (
+          <>
+            {/* Find any opponent with a pending win claim (including creator) */}
+            {recipients.some(r => r.recipient_id !== user?.id && r.pending_outcome === 'won') ? (
+              <PendingOutcomeView
+                pendingOutcome={'won'} // Opponent claimed victory
+                isCreator={isCreator}
+                onConfirm={handleConfirmOutcome}
+                onReject={handleRejectOutcome}
+                loading={loading}
+              />
+            ) : opponentPendingOutcome ? (
+              <PendingOutcomeView
+                pendingOutcome={opponentPendingOutcome}
+                isCreator={isCreator}
+                onConfirm={handleConfirmOutcome}
+                onReject={handleRejectOutcome}
+                loading={loading}
+              />
+            ) : null}
+          </>
         )}
-        
-        {pendingOutcome && (
+
+        {pendingOutcome && effectiveBetStatus !== 'completed' && (
           <View style={styles.pendingOutcomeContainer}>
             <Text style={styles.pendingOutcomeTitle}>
               {pendingOutcome === 'won' 
                 ? 'You claimed victory. Waiting for confirmation...' 
                 : 'You claimed a loss. Waiting for confirmation...'}
+            </Text>
+          </View>
+        )}
+        
+        {recipients.some(r => r.recipient_id !== user?.id && r.status === 'pending' && !r.pending_outcome) && effectiveBetStatus !== 'completed' && (
+          <View style={styles.pendingOutcomeContainer}>
+            <Text style={styles.pendingOutcomeTitle}>
+              Waiting for opponent to complete their action...
             </Text>
           </View>
         )}

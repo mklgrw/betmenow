@@ -304,22 +304,81 @@ export const useBetActions = ({
           return;
         }
         
-        // Update recipient statuses - declare win for creator, loss for opponent
+        // For creator win declaration - DO NOT change opponent's status to 'pending' 
+        // if they're already 'in_progress', just clear any pending outcomes
+        let opponentStatus = opponent.status;
+        
+        // Only set to pending if they're not already in a specific state
+        if (!['in_progress', 'won', 'lost'].includes(opponent.status)) {
+          opponentStatus = 'pending';
+        }
+        
         const result = await updateRecipientStatuses(
           opponent.id, // Update opponent's record
           { 
-            status: 'lost' as RecipientStatus, 
-            pending_outcome: null,
-            outcome_claimed_by: user?.id, 
-            outcome_claimed_at: new Date().toISOString() 
+            status: opponentStatus, 
+            pending_outcome: null, // Don't set their pending outcome
+            outcome_claimed_by: null, 
+            outcome_claimed_at: null 
           },
-          null, // No second recipient to update
+          null, // No direct second update needed
           {} // No update needed
         );
         
         if (!result) {
           dispatch({ type: 'ACTION_ERROR', payload: 'Failed to declare win' });
           return;
+        }
+        
+        // Create a "creator record" if it doesn't exist
+        const { data: creatorRecord, error: creatorError } = await supabase
+          .from('bet_recipients')
+          .select('*')
+          .eq('bet_id', betId)
+          .eq('recipient_id', user?.id)
+          .maybeSingle();
+        
+        if (creatorError) {
+          console.error("Error checking for creator record:", creatorError);
+          dispatch({ type: 'ACTION_ERROR', payload: 'Failed to check creator status' });
+          return;
+        }
+        
+        // If creator has a recipient record, update it with pending outcome
+        if (creatorRecord) {
+          const { error: updateError } = await supabase
+            .from('bet_recipients')
+            .update({ 
+              status: 'pending',
+              pending_outcome: 'won', 
+              outcome_claimed_by: user?.id,
+              outcome_claimed_at: new Date().toISOString()
+            })
+            .eq('id', creatorRecord.id);
+            
+          if (updateError) {
+            console.error("Error updating creator record:", updateError);
+            dispatch({ type: 'ACTION_ERROR', payload: 'Failed to update creator status' });
+            return;
+          }
+        } else {
+          // If the creator doesn't have a recipient record, insert one
+          const { error: insertError } = await supabase
+            .from('bet_recipients')
+            .insert({ 
+              bet_id: betId,
+              recipient_id: user?.id, 
+              status: 'pending',
+              pending_outcome: 'won',
+              outcome_claimed_by: user?.id,
+              outcome_claimed_at: new Date().toISOString()
+            });
+            
+          if (insertError) {
+            console.error("Error creating creator record:", insertError);
+            dispatch({ type: 'ACTION_ERROR', payload: 'Failed to create creator status' });
+            return;
+          }
         }
       } else if (!recipientId) {
         Alert.alert("Error", "No recipient ID found");
@@ -345,7 +404,7 @@ export const useBetActions = ({
           opponentRecipientId,
           { 
             status: 'pending' as RecipientStatus, 
-            pending_outcome: null
+            pending_outcome: 'lost' as PendingOutcome // Set opponent's pending outcome as "lost"
           }
         );
         
@@ -367,7 +426,7 @@ export const useBetActions = ({
       dispatch({ type: 'ACTION_ERROR', payload: 'An unexpected error occurred' });
       Alert.alert("Error", "Failed to declare win. Please try again.");
     }
-  }, [recipientId, recipients, user?.id, isCreator, updateRecipientStatuses, fetchBetDetails, fetchBets]);
+  }, [recipientId, recipients, user?.id, isCreator, betId, updateRecipientStatuses, fetchBetDetails, fetchBets]);
   
   // Declare loss
   const handleDeclareLoss = useCallback(async () => {
@@ -384,7 +443,7 @@ export const useBetActions = ({
           return;
         }
         
-        // Update recipient statuses - declare loss for creator, win for opponent
+        // Update recipient statuses - immediate win for opponent, loss for creator
         const result = await updateRecipientStatuses(
           opponent.id, // Update opponent's record
           { 
@@ -400,6 +459,68 @@ export const useBetActions = ({
         if (!result) {
           dispatch({ type: 'ACTION_ERROR', payload: 'Failed to declare loss' });
           return;
+        }
+        
+        // Create a "creator record" if it doesn't exist to mark the loss
+        const { data: creatorRecord, error: creatorError } = await supabase
+          .from('bet_recipients')
+          .select('*')
+          .eq('bet_id', betId)
+          .eq('recipient_id', user?.id)
+          .maybeSingle();
+        
+        if (creatorError) {
+          console.error("Error checking for creator record:", creatorError);
+          dispatch({ type: 'ACTION_ERROR', payload: 'Failed to check creator status' });
+          return;
+        }
+        
+        // If creator has a recipient record, update it to lost
+        if (creatorRecord) {
+          const { error: updateError } = await supabase
+            .from('bet_recipients')
+            .update({ 
+              status: 'lost',
+              pending_outcome: null,
+              outcome_claimed_by: user?.id,
+              outcome_claimed_at: new Date().toISOString()
+            })
+            .eq('id', creatorRecord.id);
+            
+          if (updateError) {
+            console.error("Error updating creator record:", updateError);
+            dispatch({ type: 'ACTION_ERROR', payload: 'Failed to update creator status' });
+            return;
+          }
+        } else {
+          // If the creator doesn't have a recipient record, insert one with lost status
+          const { error: insertError } = await supabase
+            .from('bet_recipients')
+            .insert({ 
+              bet_id: betId,
+              recipient_id: user?.id, 
+              status: 'lost',
+              pending_outcome: null,
+              outcome_claimed_by: user?.id,
+              outcome_claimed_at: new Date().toISOString()
+            });
+            
+          if (insertError) {
+            console.error("Error creating creator record:", insertError);
+            dispatch({ type: 'ACTION_ERROR', payload: 'Failed to create creator status' });
+            return;
+          }
+        }
+        
+        // Update the bet status to completed
+        const { error: betUpdateError } = await supabase
+          .from('bets')
+          .update({ status: 'completed' })
+          .eq('id', betId);
+          
+        if (betUpdateError) {
+          console.error("Error updating bet status:", betUpdateError);
+          // Continue anyway as the primary update succeeded
         }
       } else if (!recipientId) {
         Alert.alert("Error", "No recipient ID found");
@@ -431,6 +552,17 @@ export const useBetActions = ({
           dispatch({ type: 'ACTION_ERROR', payload: 'Failed to declare loss' });
           return;
         }
+        
+        // Update the bet status to completed
+        const { error: betUpdateError } = await supabase
+          .from('bets')
+          .update({ status: 'completed' })
+          .eq('id', betId);
+          
+        if (betUpdateError) {
+          console.error("Error updating bet status:", betUpdateError);
+          // Continue anyway as the primary update succeeded
+        }
       }
       
       dispatch({ type: 'ACTION_SUCCESS' });
@@ -450,12 +582,19 @@ export const useBetActions = ({
       dispatch({ type: 'ACTION_ERROR', payload: 'An unexpected error occurred' });
       Alert.alert("Error", "Failed to declare loss. Please try again.");
     }
-  }, [recipientId, recipients, user?.id, isCreator, updateRecipientStatuses, fetchBetDetails, fetchBets, navigation]);
+  }, [recipientId, recipients, user?.id, isCreator, betId, updateRecipientStatuses, fetchBetDetails, fetchBets, navigation]);
   
   // Handle confirming a pending outcome
   const handleConfirmOutcome = useCallback(async () => {
     try {
-      if (!opponentPendingOutcome || !recipientId) {
+      // Check for opponents with pending outcomes
+      const opponentWithClaimedOutcome = recipients.find(r => 
+        r.recipient_id !== user?.id && 
+        r.pending_outcome !== null
+      );
+      
+      // Better error handling and fallback
+      if (!opponentWithClaimedOutcome && !opponentPendingOutcome && !recipientId) {
         Alert.alert("Error", "No pending outcome to confirm");
         return;
       }
@@ -464,11 +603,62 @@ export const useBetActions = ({
       
       // Find opponent if not provided
       let opponentRecipientId: string | null = null;
-      if (recipients && recipients.length > 0) {
-        const opponent = recipients.find(r => 
+      let opponentIsCreator = false;
+      let pendingOutcomeToConfirm: PendingOutcome = 'won'; // Default to confirming a win
+      
+      if (opponentWithClaimedOutcome) {
+        // Use the opponent we found with a pending outcome
+        opponentRecipientId = opponentWithClaimedOutcome.id;
+        pendingOutcomeToConfirm = opponentWithClaimedOutcome.pending_outcome || 'won';
+        
+        // Check if this opponent is the creator
+        if (opponentWithClaimedOutcome.recipient_id && betId) {
+          const { data: betData } = await supabase
+            .from('bets')
+            .select('creator_id')
+            .eq('id', betId)
+            .single();
+            
+          opponentIsCreator = betData?.creator_id === opponentWithClaimedOutcome.recipient_id;
+        }
+      } else if (recipients && recipients.length > 0) {
+        // Fallback to traditional logic
+        // First try to find opponent with explicit pending outcome
+        let opponent = recipients.find(r => 
           r.pending_outcome !== null && r.id !== recipientId
         );
-        opponentRecipientId = opponent?.id || null;
+        
+        // If no opponent with pending outcome found, look for an opponent with 'pending' status
+        if (!opponent) {
+          opponent = recipients.find(r => 
+            r.status === 'pending' && r.id !== recipientId
+          );
+          
+          // Default to treating them as claiming victory if status is pending but no explicit pending_outcome
+          if (opponent && !opponent.pending_outcome) {
+            pendingOutcomeToConfirm = 'won';
+          }
+        }
+        
+        if (opponent) {
+          opponentRecipientId = opponent.id;
+          
+          // If opponent has explicit pending outcome, use it
+          if (opponent.pending_outcome) {
+            pendingOutcomeToConfirm = opponent.pending_outcome;
+          }
+          
+          // Check if the opponent is the creator
+          if (opponent.recipient_id && betId) {
+            const { data: betData } = await supabase
+              .from('bets')
+              .select('creator_id')
+              .eq('id', betId)
+              .single();
+              
+            opponentIsCreator = betData?.creator_id === opponent.recipient_id;
+          }
+        }
       }
       
       if (!opponentRecipientId) {
@@ -477,13 +667,13 @@ export const useBetActions = ({
         return;
       }
       
-      // Determine outcome status
-      const myStatus = opponentPendingOutcome === 'won' ? 'lost' as RecipientStatus : 'won' as RecipientStatus;
-      const opponentStatus = opponentPendingOutcome === 'won' ? 'won' as RecipientStatus : 'lost' as RecipientStatus;
+      // Determine outcome status based on opponent's pending outcome
+      const myStatus = pendingOutcomeToConfirm === 'won' ? 'lost' as RecipientStatus : 'won' as RecipientStatus;
+      const opponentStatus = pendingOutcomeToConfirm === 'won' ? 'won' as RecipientStatus : 'lost' as RecipientStatus;
       
       // Update statuses
       const result = await updateRecipientStatuses(
-        recipientId, 
+        recipientId || '', // Use empty string if no recipientId
         { 
           status: myStatus, 
           pending_outcome: null as PendingOutcome 
@@ -498,6 +688,38 @@ export const useBetActions = ({
       if (!result) {
         dispatch({ type: 'ACTION_ERROR', payload: 'Failed to confirm outcome' });
         return;
+      }
+      
+      // ALWAYS Update the bet status to completed
+      if (betId) {
+        const { error: betUpdateError } = await supabase
+          .from('bets')
+          .update({ status: 'completed' })
+          .eq('id', betId);
+          
+        if (betUpdateError) {
+          console.error("Error updating bet status:", betUpdateError);
+          // Continue anyway as the primary confirmation succeeded
+        }
+      }
+      
+      // Update all recipients to completed status to ensure consistent filtering
+      if (betId) {
+        const { error: updateRecipientsError } = await supabase
+          .from('bet_recipients')
+          .update({ 
+            status: (r: any) => `CASE 
+              WHEN status = 'pending' AND outcome_claimed_by IS NULL THEN 'in_progress'::text
+              ELSE status
+            END`
+          })
+          .eq('bet_id', betId)
+          .is('pending_outcome', null);
+          
+        if (updateRecipientsError) {
+          console.error("Error updating recipients:", updateRecipientsError);
+          // Continue anyway as the primary confirmation succeeded
+        }
       }
       
       dispatch({ type: 'ACTION_SUCCESS' });
@@ -517,7 +739,7 @@ export const useBetActions = ({
       dispatch({ type: 'ACTION_ERROR', payload: 'An unexpected error occurred' });
       Alert.alert("Error", "Failed to confirm outcome. Please try again.");
     }
-  }, [recipientId, recipients, opponentPendingOutcome, updateRecipientStatuses, fetchBetDetails, fetchBets, navigation]);
+  }, [recipientId, recipients, opponentPendingOutcome, updateRecipientStatuses, fetchBetDetails, fetchBets, navigation, betId, user?.id]);
   
   // Handle rejecting a claimed outcome
   const handleRejectOutcome = useCallback(async () => {
@@ -531,11 +753,27 @@ export const useBetActions = ({
       
       // Find opponent if not provided
       let opponentRecipientId: string | null = null;
+      let opponentIsCreator = false;
+      
       if (recipients && recipients.length > 0) {
         const opponent = recipients.find(r => 
           r.pending_outcome !== null && r.id !== recipientId
         );
-        opponentRecipientId = opponent?.id || null;
+        
+        if (opponent) {
+          opponentRecipientId = opponent.id;
+          // Check if the bet has a creator_id property and if it matches the opponent's recipient_id
+          if (opponent.bet_id) {
+            // Fetch the bet to check if the opponent is the creator
+            const { data: betData } = await supabase
+              .from('bets')
+              .select('creator_id')
+              .eq('id', opponent.bet_id)
+              .single();
+              
+            opponentIsCreator = betData?.creator_id === opponent.recipient_id;
+          }
+        }
       }
       
       if (!opponentRecipientId) {

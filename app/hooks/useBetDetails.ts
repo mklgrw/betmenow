@@ -122,8 +122,24 @@ function betDetailsReducer(state: BetDetailsState, action: BetDetailsAction): Be
       
       // Calculate effective bet status
       let effectiveBetStatus = getBetStatus(bet?.status);
-      if (hasWonOrLostRecipient && effectiveBetStatus === 'in_progress') {
+
+      // Override with completed if bet status is explicitly completed
+      if (bet?.status === 'completed') {
         effectiveBetStatus = 'completed';
+      }
+      // Mark as completed if any recipient has won or lost
+      else if (hasWonOrLostRecipient && effectiveBetStatus === 'in_progress') {
+        effectiveBetStatus = 'completed';
+      }
+
+      // Double check to ensure status flags are consistent
+      let finalRecipientStatus = recipientStatus;
+      if (effectiveBetStatus === 'completed' && 
+          finalRecipientStatus === 'pending' && 
+          pendingOutcome === null) {
+        // If bet is completed but recipient still shows pending with no outcome,
+        // update to a more appropriate status
+        finalRecipientStatus = 'in_progress';
       }
 
       return {
@@ -132,7 +148,7 @@ function betDetailsReducer(state: BetDetailsState, action: BetDetailsAction): Be
         recipients,
         loading: false,
         isCreator,
-        recipientStatus,
+        recipientStatus: finalRecipientStatus,
         recipientId,
         opponentPendingOutcome,
         pendingOutcome,
@@ -184,14 +200,30 @@ function betDetailsReducer(state: BetDetailsState, action: BetDetailsAction): Be
       
       // Calculate effective bet status
       let effectiveBetStatus = getBetStatus(state.bet?.status);
-      if (hasWonOrLostRecipient && effectiveBetStatus === 'in_progress') {
+
+      // Override with completed if bet status is explicitly completed
+      if (state.bet?.status === 'completed') {
         effectiveBetStatus = 'completed';
+      }
+      // Mark as completed if any recipient has won or lost
+      else if (hasWonOrLostRecipient && effectiveBetStatus === 'in_progress') {
+        effectiveBetStatus = 'completed';
+      }
+
+      // Double check to ensure status flags are consistent
+      let finalRecipientStatus = recipientStatus;
+      if (effectiveBetStatus === 'completed' && 
+          finalRecipientStatus === 'pending' && 
+          pendingOutcome === null) {
+        // If bet is completed but recipient still shows pending with no outcome,
+        // update to a more appropriate status
+        finalRecipientStatus = 'in_progress';
       }
 
       return {
         ...state,
         isCreator,
-        recipientStatus,
+        recipientStatus: finalRecipientStatus,
         recipientId,
         opponentPendingOutcome,
         pendingOutcome,
