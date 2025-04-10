@@ -228,7 +228,7 @@ export const useBetActions = ({
       dispatch({ type: 'ACTION_START', payload: 'accept' });
       
       // Call accept_bet RPC function
-      const { data, error } = await supabase.rpc('accept_bet', {
+      const { data, error } = await supabase.rpc('secure_accept_bet', {
         p_recipient_id: recipientId
       });
       
