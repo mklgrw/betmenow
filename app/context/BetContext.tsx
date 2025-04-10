@@ -499,7 +499,7 @@ export const BetProvider: React.FC<{children: ReactNode}> = ({ children }) => {
   // Handle accepting a bet
   const handleAcceptBet = useCallback(async (recipientId: string) => {
     try {
-      const { data, error } = await supabase.rpc('accept_bet', {
+      const { data, error } = await supabase.rpc('secure_accept_bet', {
           p_recipient_id: recipientId
       });
       
@@ -507,7 +507,7 @@ export const BetProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         console.error("Error accepting bet:", error);
         Alert.alert("Error", "Failed to accept bet");
       } else {
-    fetchBets();
+        fetchBets();
       }
     } catch (error) {
       console.error("Error in handleAcceptBet:", error);

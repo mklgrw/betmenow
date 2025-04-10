@@ -430,159 +430,95 @@ export const useBetActions = ({
   
   // Declare loss
   const handleDeclareLoss = useCallback(async () => {
+    // Ensure betId exists right at the start
+    if (!betId) {
+      Alert.alert("Error", "Bet ID is missing.");
+      dispatch({ type: 'ACTION_ERROR', payload: 'Bet ID missing' });
+      return;
+    }
+    
     try {
       dispatch({ type: 'ACTION_START', payload: 'declare-loss' });
       
-      // Handle the case where the current user is the creator
-      if (isCreator && !recipientId) {
-        // Get the creator's recipient record or find appropriate recipient to update
-        const opponent = recipients.find(r => r.recipient_id !== user?.id);
-        if (!opponent) {
-          Alert.alert("Error", "Could not find opponent to declare outcome against");
-          dispatch({ type: 'ACTION_ERROR', payload: 'No opponent found' });
-          return;
-        }
+      // Assign checked betId to a new constant for clearer type flow
+      const currentBetId = betId;
+      
+      let declarerRecipientId: string | null = recipientId;
+      
+      // If the user is the creator AND they don't have a specific recipientId passed
+      // (meaning they clicked declare loss on the main bet, not a specific opponent)
+      // we need to find or create their own recipient record.
+      if (isCreator && !declarerRecipientId) {
         
-        // Update recipient statuses - immediate win for opponent, loss for creator
-        const result = await updateRecipientStatuses(
-          opponent.id, // Update opponent's record
-          { 
-            status: 'won' as RecipientStatus, 
-            pending_outcome: null,
-            outcome_claimed_by: user?.id, 
-            outcome_claimed_at: new Date().toISOString() 
-          },
-          null, // No second recipient to update
-          {} // No update needed
-        );
-        
-        if (!result) {
-          dispatch({ type: 'ACTION_ERROR', payload: 'Failed to declare loss' });
-          return;
-        }
-        
-        // Create a "creator record" if it doesn't exist to mark the loss
-        const { data: creatorRecord, error: creatorError } = await supabase
+        const { data: creatorRecord, error: findError } = await supabase
           .from('bet_recipients')
-          .select('*')
-          .eq('bet_id', betId)
+          .select('id')
+          .eq('bet_id', currentBetId) // Use the new constant here
           .eq('recipient_id', user?.id)
           .maybeSingle();
-        
-        if (creatorError) {
-          console.error("Error checking for creator record:", creatorError);
-          dispatch({ type: 'ACTION_ERROR', payload: 'Failed to check creator status' });
+
+        if (findError) {
+          console.error("Error finding creator recipient record:", findError);
+          dispatch({ type: 'ACTION_ERROR', payload: 'Failed to find creator record' });
+          Alert.alert("Error", "Failed to declare loss. Could not verify your status.");
           return;
         }
         
-        // If creator has a recipient record, update it to lost
         if (creatorRecord) {
-          const { error: updateError } = await supabase
-            .from('bet_recipients')
-            .update({ 
-              status: 'lost',
-              pending_outcome: null,
-              outcome_claimed_by: user?.id,
-              outcome_claimed_at: new Date().toISOString()
-            })
-            .eq('id', creatorRecord.id);
-            
-          if (updateError) {
-            console.error("Error updating creator record:", updateError);
-            dispatch({ type: 'ACTION_ERROR', payload: 'Failed to update creator status' });
-            return;
-          }
+          declarerRecipientId = creatorRecord.id;
         } else {
-          // If the creator doesn't have a recipient record, insert one with lost status
-          const { error: insertError } = await supabase
-            .from('bet_recipients')
-            .insert({ 
-              bet_id: betId,
-              recipient_id: user?.id, 
-              status: 'lost',
-              pending_outcome: null,
-              outcome_claimed_by: user?.id,
-              outcome_claimed_at: new Date().toISOString()
-            });
-            
-          if (insertError) {
-            console.error("Error creating creator record:", insertError);
-            dispatch({ type: 'ACTION_ERROR', payload: 'Failed to create creator status' });
-            return;
-          }
-        }
-        
-        // Update the bet status to completed
-        const { error: betUpdateError } = await supabase
-          .from('bets')
-          .update({ status: 'completed' })
-          .eq('id', betId);
-          
-        if (betUpdateError) {
-          console.error("Error updating bet status:", betUpdateError);
-          // Continue anyway as the primary update succeeded
-        }
-      } else if (!recipientId) {
-        Alert.alert("Error", "No recipient ID found");
-        dispatch({ type: 'ACTION_ERROR', payload: 'No recipient ID found' });
-        return;
-      } else {
-        // Find opponent if not provided
-        let opponentRecipientId: string | null = null;
-        if (recipients && recipients.length > 0) {
-          const opponent = recipients.find(r => r.recipient_id !== user?.id && r.id !== recipientId);
-          opponentRecipientId = opponent?.id || null;
-        }
-        
-        // Update statuses
-        const result = await updateRecipientStatuses(
-          recipientId, 
-          { 
-            status: 'lost' as RecipientStatus, 
-            pending_outcome: null as PendingOutcome
-          },
-          opponentRecipientId,
-          { 
-            status: 'won' as RecipientStatus, 
-            pending_outcome: null as PendingOutcome
-          }
-        );
-        
-        if (!result) {
-          dispatch({ type: 'ACTION_ERROR', payload: 'Failed to declare loss' });
+          // If creator doesn't have a recipient record, we cannot declare loss this way yet.
+          // Ideally, a record is always created for the creator.
+          // For now, show an error.
+          console.error("Creator recipient record missing for bet:", currentBetId);
+          dispatch({ type: 'ACTION_ERROR', payload: 'Creator record missing' });
+          Alert.alert("Error", "Failed to declare loss. Creator status record not found.");
           return;
-        }
-        
-        // Update the bet status to completed
-        const { error: betUpdateError } = await supabase
-          .from('bets')
-          .update({ status: 'completed' })
-          .eq('id', betId);
-          
-        if (betUpdateError) {
-          console.error("Error updating bet status:", betUpdateError);
-          // Continue anyway as the primary update succeeded
         }
       }
-      
+
+      // Ensure we have a valid recipient ID for the person declaring loss
+      if (!declarerRecipientId) {
+        Alert.alert("Error", "Your participant record ID could not be determined.");
+        dispatch({ type: 'ACTION_ERROR', payload: 'Declarer recipient ID missing' });
+        return;
+      }
+
+      // Call the backend function to handle the loss declaration
+      const { data, error } = await supabase.rpc('secure_declare_bet_outcome', {
+        p_recipient_id: declarerRecipientId,
+        p_outcome: 'lost'
+      });
+
+      if (error || (data && data.success === false)) {
+        const errorMsg = error?.message || data?.error || 'Unknown error';
+        console.error("Error declaring loss via RPC:", errorMsg);
+        dispatch({ type: 'ACTION_ERROR', payload: errorMsg });
+        Alert.alert("Error", `Failed to declare loss: ${errorMsg}`);
+        return;
+      }
+
+      // If RPC call is successful
       dispatch({ type: 'ACTION_SUCCESS' });
-      
+      Alert.alert("Success", data?.message || "Loss declared successfully.");
+
       // Refresh bet data
-      fetchBetDetails();
-      fetchBets();
-      
-      // For direct loss declaration, navigate back to home to show updated list
+      await fetchBetDetails();
+      await fetchBets();
+
+      // Navigate back or to home
       if (navigation.canGoBack && navigation.canGoBack()) {
         navigation.goBack();
       } else {
         navigation.navigate('Home');
       }
-    } catch (error) {
-      console.error("Error declaring loss:", error);
-      dispatch({ type: 'ACTION_ERROR', payload: 'An unexpected error occurred' });
-      Alert.alert("Error", "Failed to declare loss. Please try again.");
+    } catch (e) {
+      const error = e as Error;
+      console.error("Unexpected error in handleDeclareLoss:", error);
+      dispatch({ type: 'ACTION_ERROR', payload: error.message || 'Unexpected error occurred' });
+      Alert.alert("Error", "An unexpected error occurred while declaring loss.");
     }
-  }, [recipientId, recipients, user?.id, isCreator, betId, updateRecipientStatuses, fetchBetDetails, fetchBets, navigation]);
+  }, [recipientId, isCreator, betId, user?.id, fetchBetDetails, fetchBets, navigation]);
   
   // Handle confirming a pending outcome
   const handleConfirmOutcome = useCallback(async () => {
