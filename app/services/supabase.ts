@@ -3,14 +3,16 @@ import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@env';
 
-// Supabase credentials
-const supabaseUrl = 'https://hjuggbuiobpxdlgkbcph.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqdWdnYnVpb2JweGRsZ2tiY3BoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4MjgyODYsImV4cCI6MjA1OTQwNDI4Nn0.vQ3gUz7QIJqctxeWpJx1ngzs4qomiEVDk501HlvC9Y4';
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.error('Missing Supabase environment variables');
+  throw new Error('Missing Supabase environment variables');
+}
 
-console.log('Supabase initialization with URL:', supabaseUrl);
+console.log('Supabase initialization with URL:', SUPABASE_URL);
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: AsyncStorage,
     autoRefreshToken: true,
@@ -250,7 +252,7 @@ export const uploadAvatar = async (uri: string, userId: string) => {
       } as any);
       
       // The URL for direct upload to Supabase Storage
-      const uploadUrl = `${supabaseUrl}/storage/v1/object/avatars/${fileName}`;
+      const uploadUrl = `${SUPABASE_URL}/storage/v1/object/avatars/${fileName}`;
       console.log('Upload URL:', uploadUrl);
       
       // Create an XHR request for more direct control
@@ -258,8 +260,8 @@ export const uploadAvatar = async (uri: string, userId: string) => {
       xhr.open('POST', uploadUrl, true);
       
       // Set headers
-      xhr.setRequestHeader('Authorization', `Bearer ${supabaseAnonKey}`);
-      xhr.setRequestHeader('apikey', supabaseAnonKey);
+      xhr.setRequestHeader('Authorization', `Bearer ${SUPABASE_ANON_KEY}`);
+      xhr.setRequestHeader('apikey', SUPABASE_ANON_KEY);
       xhr.setRequestHeader('x-upsert', 'true');
       
       // Set up event handlers
@@ -268,7 +270,7 @@ export const uploadAvatar = async (uri: string, userId: string) => {
           console.log('Upload successful, response:', xhr.responseText);
           
           // Construct the public URL - ensure it matches exactly how the file is stored
-          const publicUrl = `${supabaseUrl}/storage/v1/object/public/avatars/${fileName}`;
+          const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/avatars/${fileName}`;
           console.log('Public URL:', publicUrl);
           
           // Store in AsyncStorage for persistence and immediate usage
