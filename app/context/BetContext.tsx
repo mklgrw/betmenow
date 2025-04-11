@@ -24,7 +24,7 @@ export type ProcessedBet = {
 export type RecipientUpdate = {
   status?: RecipientStatus;
   pending_outcome?: PendingOutcome;
-  outcome_claimed_by?: string | null;
+  outcome_claimed_by?: string | null | undefined;
   outcome_claimed_at?: string | null;
 };
 

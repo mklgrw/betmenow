@@ -26,12 +26,13 @@ export type BetStatus =
 
 // Define literal types for recipient statuses
 export type RecipientStatus = 
-  | 'pending'      // recipient hasn't accepted/rejected yet
-  | 'in_progress'  // recipient has accepted, bet is active
-  | 'rejected'     // recipient rejected the bet
-  | 'creator'      // special status for bet creator
-  | 'won'          // recipient won the bet
-  | 'lost';        // recipient lost the bet
+  | 'pending'         // recipient hasn't accepted/rejected the bet invitation yet
+  | 'pending_outcome' // recipient has a pending outcome claim that needs confirmation
+  | 'in_progress'     // recipient has accepted, bet is active
+  | 'rejected'        // recipient rejected the bet
+  | 'creator'         // special status for bet creator
+  | 'won'             // recipient won the bet
+  | 'lost';           // recipient lost the bet
 
 // Define literal types for pending outcomes
 export type PendingOutcome = 'won' | 'lost' | null;
@@ -86,7 +87,7 @@ export interface BetRecipient {
 export type RecipientUpdate = {
   status?: RecipientStatus;
   pending_outcome?: PendingOutcome;
-  outcome_claimed_by?: string | null;
+  outcome_claimed_by?: string | null | undefined;
   outcome_claimed_at?: string | null;
 };
 

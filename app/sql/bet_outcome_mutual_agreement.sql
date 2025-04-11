@@ -7,6 +7,21 @@ ALTER TABLE bet_recipients ADD COLUMN IF NOT EXISTS pending_outcome TEXT DEFAULT
 ALTER TABLE bet_recipients ADD COLUMN IF NOT EXISTS outcome_claimed_by UUID DEFAULT NULL;
 ALTER TABLE bet_recipients ADD COLUMN IF NOT EXISTS outcome_claimed_at TIMESTAMPTZ DEFAULT NULL;
 
+-- Helper function to validate UUIDs
+CREATE OR REPLACE FUNCTION is_valid_uuid(text)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+BEGIN
+  -- Check if the input is a valid UUID
+  RETURN $1 ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+EXCEPTION
+  WHEN OTHERS THEN
+    RETURN FALSE;
+END;
+$$;
+
 -- Function to declare a bet outcome with mutual agreement system
 CREATE OR REPLACE FUNCTION secure_declare_bet_outcome(
   p_recipient_id UUID,
@@ -23,12 +38,25 @@ DECLARE
   v_creator_id UUID;
   v_opponent_recipient_id UUID;
   v_is_creator BOOLEAN;
+  v_update_count INTEGER;
+  v_user_record RECORD;
+  v_opponent_record RECORD;
 BEGIN
   -- Get current user
   v_user_id := auth.uid();
   
   -- Log function start and input parameters
   RAISE NOTICE 'secure_declare_bet_outcome started: p_recipient_id=%, p_outcome=%, user_id=%', p_recipient_id, p_outcome, v_user_id;
+  
+  -- Validate that user_id is a valid UUID
+  IF NOT is_valid_uuid(v_user_id::text) THEN
+    RAISE NOTICE 'Invalid user ID format: %', v_user_id;
+    RETURN jsonb_build_object(
+      'success', FALSE,
+      'error', 'Invalid user ID format',
+      'recipient_id', p_recipient_id
+    );
+  END IF;
   
   -- Check if recipient record exists and user is the recipient
   SELECT bet_id INTO v_bet_id
@@ -81,73 +109,77 @@ BEGIN
     );
   END IF;
   
-  -- Get the opposing recipient record
-  IF v_is_creator THEN
-    -- If user is creator, opponent is the recipient in this record
-    v_opponent_recipient_id := p_recipient_id;
-    RAISE NOTICE 'User is creator, opponent is the recipient: opponent_id=%', v_opponent_recipient_id;
-  ELSE
-    -- If user is recipient, opponent is the creator
+  -- Find opponent's recipient record
+  SELECT id INTO v_opponent_recipient_id
+  FROM bet_recipients
+  WHERE bet_id = v_bet_id 
+    AND id != p_recipient_id
+    AND recipient_id != v_user_id
+  LIMIT 1;
+  
+  -- Log the opponent finding results
+  RAISE NOTICE 'First opponent lookup result: %', v_opponent_recipient_id;
+  
+  IF v_opponent_recipient_id IS NULL THEN
+    -- If we couldn't find an opponent by usual means, try harder
     SELECT id INTO v_opponent_recipient_id
     FROM bet_recipients
-    WHERE bet_id = v_bet_id AND recipient_id = v_creator_id;
+    WHERE bet_id = v_bet_id 
+      AND id != p_recipient_id
+    LIMIT 1;
     
-    RAISE NOTICE 'Looking for creator recipient record: result=%', v_opponent_recipient_id;
-    
-    -- If no recipient record for creator, use any other recipient
-    IF v_opponent_recipient_id IS NULL THEN
-      SELECT id INTO v_opponent_recipient_id
-      FROM bet_recipients
-      WHERE bet_id = v_bet_id AND id != p_recipient_id
-      LIMIT 1;
-      
-      RAISE NOTICE 'No creator recipient record, using any other recipient: result=%', v_opponent_recipient_id;
-    END IF;
+    RAISE NOTICE 'Alternative opponent lookup found: %', v_opponent_recipient_id;
   END IF;
   
-  RAISE NOTICE 'Final opponent recipient ID: %', v_opponent_recipient_id;
+  -- Log what records we're going to update
+  SELECT * INTO v_user_record FROM bet_recipients WHERE id = p_recipient_id;
+  RAISE NOTICE 'About to update user record with ID=%, current status=%, pending_outcome=%', 
+    p_recipient_id, v_user_record.status, v_user_record.pending_outcome;
   
-  -- Handling based on declared outcome
+  IF v_opponent_recipient_id IS NOT NULL THEN
+    SELECT * INTO v_opponent_record FROM bet_recipients WHERE id = v_opponent_recipient_id;
+    RAISE NOTICE 'About to update opponent record with ID=%, current status=%, pending_outcome=%', 
+      v_opponent_recipient_id, v_opponent_record.status, v_opponent_record.pending_outcome;
+  END IF;
+
+  -- HANDLE DIFFERENT OUTCOME TYPES
   IF p_outcome = 'lost' THEN
-    -- If declaring a loss, automatically mark the current user's recipient as lost
-    -- and the opponent's recipient as won
-    
-    RAISE NOTICE 'Processing LOST outcome. Current user ID=%, recipient ID=%', v_user_id, p_recipient_id;
+    -- If declaring a loss, directly mark user as lost and opponent as won
+    RAISE NOTICE 'Processing LOST outcome';
     
     -- Update current user's status
     UPDATE bet_recipients 
     SET status = 'lost',
         pending_outcome = NULL,
-        outcome_claimed_by = v_user_id,
+        outcome_claimed_by = CASE WHEN is_valid_uuid(v_user_id::text) THEN v_user_id ELSE NULL END,
         outcome_claimed_at = NOW()
     WHERE id = p_recipient_id;
     
-    RAISE NOTICE 'Updated current user status to LOST';
+    GET DIAGNOSTICS v_update_count = ROW_COUNT;
+    RAISE NOTICE 'Updated current user status to LOST, rows affected: %', v_update_count;
     
     -- Update opponent's status (if found)
     IF v_opponent_recipient_id IS NOT NULL THEN
-      RAISE NOTICE 'Updating opponent (ID=%) status to WON', v_opponent_recipient_id;
+      RAISE NOTICE 'Updating opponent status to WON';
       
       UPDATE bet_recipients 
       SET status = 'won',
           pending_outcome = NULL,
-          outcome_claimed_by = v_user_id,
+          outcome_claimed_by = CASE WHEN is_valid_uuid(v_user_id::text) THEN v_user_id ELSE NULL END,
           outcome_claimed_at = NOW()
       WHERE id = v_opponent_recipient_id;
       
-      RAISE NOTICE 'Opponent status updated successfully';
-    ELSE
-      RAISE NOTICE 'WARNING: No opponent recipient ID found, skipping opponent update';
+      GET DIAGNOSTICS v_update_count = ROW_COUNT;
+      RAISE NOTICE 'Opponent status updated successfully, rows affected: %', v_update_count;
     END IF;
     
     -- Update the bet status
-    RAISE NOTICE 'Updating bet (ID=%) status to COMPLETED', v_bet_id;
-    
     UPDATE bets
     SET status = 'completed'
     WHERE id = v_bet_id;
     
-    RAISE NOTICE 'Bet status updated successfully. Transaction complete.';
+    GET DIAGNOSTICS v_update_count = ROW_COUNT;
+    RAISE NOTICE 'Bet status updated successfully, rows affected: %', v_update_count;
     
     RETURN jsonb_build_object(
       'success', TRUE,
@@ -158,32 +190,44 @@ BEGIN
     );
     
   ELSIF p_outcome = 'won' THEN
-    -- If declaring a win, mark as pending and require confirmation
+    -- If declaring a win, need confirmation from opponent
+    RAISE NOTICE 'Processing WON outcome';
     
-    RAISE NOTICE 'Processing WON outcome for user ID=%', v_user_id;
-    
-    -- Update current user's pending outcome
-    UPDATE bet_recipients 
-    SET pending_outcome = 'won',
-        outcome_claimed_by = v_user_id,
-        outcome_claimed_at = NOW()
+    -- CRITICAL FIX: Make sure the declaring user gets pending_outcome='won'
+    UPDATE bet_recipients SET
+      pending_outcome = 'won',
+      status = 'pending_outcome',
+      outcome_claimed_by = CASE WHEN is_valid_uuid(v_user_id::text) THEN v_user_id ELSE NULL END,
+      outcome_claimed_at = NOW()
     WHERE id = p_recipient_id;
     
-    RAISE NOTICE 'Updated current user pending_outcome to WON';
+    GET DIAGNOSTICS v_update_count = ROW_COUNT;
+    RAISE NOTICE 'Set current user pending_outcome to WON, rows affected: %', v_update_count;
+    
+    -- Check results
+    SELECT * INTO v_user_record FROM bet_recipients WHERE id = p_recipient_id;
+    RAISE NOTICE 'User record after update: status=%, pending_outcome=%', 
+      v_user_record.status, v_user_record.pending_outcome;
     
     -- Update opponent's pending outcome (if found)
     IF v_opponent_recipient_id IS NOT NULL THEN
-      RAISE NOTICE 'Updating opponent (ID=%) pending_outcome to LOST', v_opponent_recipient_id;
+      RAISE NOTICE 'Setting opponent pending_outcome to LOST';
       
-      UPDATE bet_recipients 
-      SET pending_outcome = 'lost',
-          outcome_claimed_by = v_user_id,
-          outcome_claimed_at = NOW()
+      -- CRITICAL FIX: Make sure the opponent gets pending_outcome='lost'
+      UPDATE bet_recipients SET
+        pending_outcome = 'lost',
+        status = 'pending_outcome',
+        outcome_claimed_by = CASE WHEN is_valid_uuid(v_user_id::text) THEN v_user_id ELSE NULL END,
+        outcome_claimed_at = NOW()
       WHERE id = v_opponent_recipient_id;
       
-      RAISE NOTICE 'Opponent pending_outcome updated successfully';
-    ELSE
-      RAISE NOTICE 'WARNING: No opponent recipient ID found, skipping opponent update';
+      GET DIAGNOSTICS v_update_count = ROW_COUNT;
+      RAISE NOTICE 'Set opponent pending_outcome to LOST, rows affected: %', v_update_count;
+      
+      -- Check results
+      SELECT * INTO v_opponent_record FROM bet_recipients WHERE id = v_opponent_recipient_id;
+      RAISE NOTICE 'Opponent record after update: status=%, pending_outcome=%', 
+        v_opponent_record.status, v_opponent_record.pending_outcome;
     END IF;
     
     RETURN jsonb_build_object(
@@ -226,14 +270,27 @@ DECLARE
   v_user_id UUID;
   v_pending_outcome TEXT;
   v_opponent_recipient_id UUID;
+  v_update_count INTEGER;
 BEGIN
   -- Get current user
   v_user_id := auth.uid();
+  
+  -- Validate that user_id is a valid UUID
+  IF NOT is_valid_uuid(v_user_id::text) THEN
+    RAISE NOTICE 'Invalid user ID format in confirm outcome: %', v_user_id;
+    RETURN jsonb_build_object(
+      'success', FALSE,
+      'error', 'Invalid user ID format',
+      'recipient_id', p_recipient_id
+    );
+  END IF;
   
   -- Check if recipient record exists, user is the recipient, and there's a pending outcome
   SELECT bet_id, pending_outcome INTO v_bet_id, v_pending_outcome
   FROM bet_recipients
   WHERE id = p_recipient_id AND recipient_id = v_user_id AND pending_outcome IS NOT NULL;
+  
+  RAISE NOTICE 'Confirm outcome - bet_id: %, pending_outcome: %', v_bet_id, v_pending_outcome;
   
   IF v_bet_id IS NULL OR v_pending_outcome IS NULL THEN
     RETURN jsonb_build_object(
@@ -249,24 +306,39 @@ BEGIN
   WHERE bet_id = v_bet_id AND id != p_recipient_id AND pending_outcome IS NOT NULL
   LIMIT 1;
   
+  RAISE NOTICE 'Found opponent with ID: %', v_opponent_recipient_id;
+  
   -- Update current user's status
   UPDATE bet_recipients 
   SET status = v_pending_outcome,
-      pending_outcome = NULL
+      pending_outcome = NULL,
+      outcome_claimed_by = CASE WHEN is_valid_uuid(v_user_id::text) THEN v_user_id ELSE NULL END,
+      outcome_claimed_at = NOW()
   WHERE id = p_recipient_id;
+  
+  GET DIAGNOSTICS v_update_count = ROW_COUNT;
+  RAISE NOTICE 'Updated current user status, rows affected: %', v_update_count;
   
   -- Update opponent's status (if found)
   IF v_opponent_recipient_id IS NOT NULL THEN
     UPDATE bet_recipients 
     SET status = CASE WHEN v_pending_outcome = 'lost' THEN 'won' ELSE 'lost' END,
-        pending_outcome = NULL
+        pending_outcome = NULL,
+        outcome_claimed_by = CASE WHEN is_valid_uuid(v_user_id::text) THEN v_user_id ELSE NULL END,
+        outcome_claimed_at = NOW()
     WHERE id = v_opponent_recipient_id;
+    
+    GET DIAGNOSTICS v_update_count = ROW_COUNT;
+    RAISE NOTICE 'Updated opponent status, rows affected: %', v_update_count;
   END IF;
   
   -- Update the bet status
   UPDATE bets
   SET status = 'completed'
   WHERE id = v_bet_id;
+  
+  GET DIAGNOSTICS v_update_count = ROW_COUNT;
+  RAISE NOTICE 'Updated bet status, rows affected: %', v_update_count;
   
   RETURN jsonb_build_object(
     'success', TRUE,
@@ -290,18 +362,29 @@ AS $$
 DECLARE
   v_bet_id UUID;
   v_user_id UUID;
-  v_pending_outcome TEXT;
   v_opponent_recipient_id UUID;
+  v_update_count INTEGER;
 BEGIN
   -- Get current user
   v_user_id := auth.uid();
   
-  -- Check if recipient record exists, user is the recipient, and there's a pending outcome
-  SELECT bet_id, pending_outcome INTO v_bet_id, v_pending_outcome
-  FROM bet_recipients
-  WHERE id = p_recipient_id AND recipient_id = v_user_id AND pending_outcome IS NOT NULL;
+  -- Validate that user_id is a valid UUID
+  IF NOT is_valid_uuid(v_user_id::text) THEN
+    RETURN jsonb_build_object(
+      'success', FALSE,
+      'error', 'Invalid user ID format',
+      'recipient_id', p_recipient_id
+    );
+  END IF;
   
-  IF v_bet_id IS NULL OR v_pending_outcome IS NULL THEN
+  -- Check if recipient record exists, user is the recipient, and there's a pending outcome
+  SELECT bet_id INTO v_bet_id
+  FROM bet_recipients
+  WHERE id = p_recipient_id 
+    AND recipient_id = v_user_id 
+    AND pending_outcome IS NOT NULL;
+  
+  IF v_bet_id IS NULL THEN
     RETURN jsonb_build_object(
       'success', FALSE,
       'error', 'No pending outcome to reject or you are not authorized',
@@ -315,23 +398,35 @@ BEGIN
   WHERE bet_id = v_bet_id AND id != p_recipient_id AND pending_outcome IS NOT NULL
   LIMIT 1;
   
-  -- Clear the pending outcomes
+  -- Update current user's status back to in_progress
   UPDATE bet_recipients 
-  SET pending_outcome = NULL
+  SET status = 'in_progress',
+      pending_outcome = NULL,
+      outcome_claimed_by = NULL,
+      outcome_claimed_at = NULL
   WHERE id = p_recipient_id;
   
-  -- Clear opponent's pending outcome (if found)
+  GET DIAGNOSTICS v_update_count = ROW_COUNT;
+  RAISE NOTICE 'Reset current user status, rows affected: %', v_update_count;
+  
+  -- Update opponent's status (if found) back to in_progress
   IF v_opponent_recipient_id IS NOT NULL THEN
     UPDATE bet_recipients 
-    SET pending_outcome = NULL
+    SET status = 'in_progress',
+        pending_outcome = NULL,
+        outcome_claimed_by = NULL,
+        outcome_claimed_at = NULL
     WHERE id = v_opponent_recipient_id;
+    
+    GET DIAGNOSTICS v_update_count = ROW_COUNT;
+    RAISE NOTICE 'Reset opponent status, rows affected: %', v_update_count;
   END IF;
   
   RETURN jsonb_build_object(
     'success', TRUE,
     'recipient_id', p_recipient_id,
     'bet_id', v_bet_id,
-    'message', 'Outcome claim rejected'
+    'message', 'Outcome claim rejected successfully'
   );
 END;
 $$; 

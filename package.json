@@ -6,7 +6,10 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "test": "jest",
+    "build": "tsc",
+    "test:e2e:issue-bet": "tsc __tests__/e2e/issueBetToExistingUser.e2e.ts --outDir dist/e2e --module CommonJS --esModuleInterop --skipLibCheck --resolveJsonModule && node dist/e2e/__tests__/e2e/issueBetToExistingUser.e2e.js"
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.1",
@@ -18,7 +21,6 @@
     "@react-navigation/stack": "^7.2.9",
     "@supabase/supabase-js": "^2.49.4",
     "date-fns": "^4.1.0",
-    "dotenv": "^16.4.7",
     "expo": "~52.0.0",
     "expo-auth-session": "~6.0.3",
     "expo-constants": "~17.0.8",
@@ -47,8 +49,14 @@
   },
   "devDependencies": {
     "@babel/core": "^7.23.0",
+    "@types/jest": "^29.5.12",
     "@types/react": "~18.2.45",
-    "babel-plugin-module-resolver": "^5.0.0"
+    "babel-plugin-module-resolver": "^5.0.0",
+    "dotenv": "^16.4.7",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0"
   },
   "private": true
 }

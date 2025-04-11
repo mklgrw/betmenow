@@ -101,6 +101,9 @@ const BetDetailsScreen = () => {
     const betRequiresInitialAcceptance = bet?.status === 'pending' && 
                                         recipients.some(r => r.recipient_id === user?.id && r.status === 'pending');
     
+    // Check if any outcome is pending confirmation
+    const hasOutcomePending = recipients.some(r => r.status === 'pending_outcome');
+    
     return {
       canDeleteBet: isCreator && bet?.status === 'pending',
       canEditBet: isCreator && bet?.status === 'pending',
@@ -109,11 +112,13 @@ const BetDetailsScreen = () => {
                           !pendingOutcome && 
                           effectiveBetStatus !== 'in_progress',
       canDeclareOutcome: effectiveBetStatus === 'in_progress' && 
-        (recipientStatus === 'in_progress' || recipientStatus === 'creator'),
+                        (recipientStatus === 'in_progress' || recipientStatus === 'creator') &&
+                        !hasOutcomePending,
       canCancelBet: isCreator && effectiveBetStatus === 'in_progress',
-      canConfirmOutcome: (!!opponentPendingOutcome || opponentHasPendingWin) && 
-                         !pendingOutcome && 
-                         effectiveBetStatus !== 'completed',
+      canConfirmOutcome: (!!opponentPendingOutcome || 
+                          recipients.some(r => r.recipient_id !== user?.id && r.status === 'pending_outcome')) && 
+                          recipientStatus !== 'pending_outcome' &&
+                          effectiveBetStatus !== 'completed',
     };
   }, [isCreator, bet?.status, recipientStatus, effectiveBetStatus, opponentPendingOutcome, pendingOutcome, recipients, user?.id]);
   
@@ -154,6 +159,12 @@ const BetDetailsScreen = () => {
       </View>
     );
   }
+
+  // Check for pending status (either invitation pending or outcome pending)
+  const isPending = recipients.some(r => 
+    r.recipient_id === user?.id && 
+    (r.status === 'pending' || r.status === 'pending_outcome')
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -219,6 +230,7 @@ const BetDetailsScreen = () => {
           </>
         )}
 
+        {/* Show pending outcomes based on status and pending_outcome field */}
         {pendingOutcome && effectiveBetStatus !== 'completed' && (
           <View style={styles.pendingOutcomeContainer}>
             <Text style={styles.pendingOutcomeTitle}>
@@ -229,10 +241,37 @@ const BetDetailsScreen = () => {
           </View>
         )}
         
-        {recipients.some(r => r.recipient_id !== user?.id && r.status === 'pending' && !r.pending_outcome) && effectiveBetStatus !== 'completed' && (
+        {/* Display status for users with pending_outcome status */}
+        {recipientStatus === 'pending_outcome' && !pendingOutcome && (
           <View style={styles.pendingOutcomeContainer}>
             <Text style={styles.pendingOutcomeTitle}>
-              Waiting for opponent to complete their action...
+              Waiting for outcome confirmation...
+            </Text>
+          </View>
+        )}
+        
+        {/* Show waiting message for opponents still in initial pending state */}
+        {recipients.some(r => 
+          r.recipient_id !== user?.id && 
+          r.status === 'pending' && 
+          !r.pending_outcome
+        ) && effectiveBetStatus !== 'completed' && (
+          <View style={styles.pendingOutcomeContainer}>
+            <Text style={styles.pendingOutcomeTitle}>
+              Waiting for opponent to accept the bet...
+            </Text>
+          </View>
+        )}
+        
+        {/* Show waiting message for opponents with pending outcomes */}
+        {recipients.some(r => 
+          r.recipient_id !== user?.id && 
+          r.status === 'pending_outcome' && 
+          !pendingOutcome
+        ) && effectiveBetStatus !== 'completed' && (
+          <View style={styles.pendingOutcomeContainer}>
+            <Text style={styles.pendingOutcomeTitle}>
+              Waiting for outcome to be confirmed...
             </Text>
           </View>
         )}

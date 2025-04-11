@@ -21,3 +21,7 @@ alwaysApply: true
 - For all designs I ask you to make, have them be beautiful, not cookie cutter.
 - Other than debugging issues to identify root cause, everything you do should be aligned with best practices for long term solutions.
 - For any backend, SQL, supabase related changes, use the supabase MCP when possible
+
+TESTING
+- tests should be written in jest
+- always use typescript for tests

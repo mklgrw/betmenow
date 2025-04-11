@@ -2,21 +2,32 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
-    "baseUrl": ".",
+    "jsx": "react-native",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "moduleResolution": "node",
     "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "target": "esnext",
+    "module": "CommonJS",
+    "outDir": "./dist",
+    "rootDir": ".",
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["*"],
-      "@components/*": ["app/components/*"],
-      "@screens/*": ["app/screens/*"],
-      "@navigation/*": ["app/navigation/*"],
-      "@assets/*": ["app/assets/*"],
-      "@hooks/*": ["app/hooks/*"],
-      "@utils/*": ["app/utils/*"],
-      "@context/*": ["app/context/*"],
-      "@services/*": ["app/services/*"],
-      "@constants/*": ["app/constants/*"]
-    },
-    "module": "es2020",
-    "moduleResolution": "bundler"
-  }
+      "@/*": ["app/*"],
+      "@env": ["node_modules/react-native-dotenv"]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "babel.config.js",
+    "jest.config.js",
+    "dist"
+  ]
 } 

@@ -9,6 +9,8 @@ description: Guidelines for writing Postgres SQL
 globs: "**/*.sql"
 ---
 
+Project ID = hjuggbuiobpxdlgkbcph
+
 # Postgres SQL Style Guide
 
 ## General
