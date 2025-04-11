@@ -1047,6 +1047,113 @@ async function testOpponentDeclareVictory() {
   }
 }
 
+// Test function 7: Verify bets show up in correct tabs for creator
+async function testBetsInCorrectTabs() {
+  console.log('\n=========================================');
+  console.log('STARTING TEST: VERIFY BETS IN CORRECT TABS');
+  console.log('=========================================');
+
+  try {
+    // Sign in as creator to check their tabs
+    console.log(`\n--- Signing in as creator: ${creatorEmail}...`);
+    
+    const { data: creatorSignInData, error: creatorSignInError } = await supabase.auth.signInWithPassword({
+      email: creatorEmail!,
+      password: creatorPassword!,
+    });
+
+    if (creatorSignInError || !creatorSignInData.user) {
+      console.error('Error signing in creator user:', creatorSignInError);
+      throw new Error(`Failed to sign in as creator ${creatorEmail}`);
+    }
+    console.log(`Successfully signed in as creator: ${creatorSignInData.user.id}`);
+    
+    // --- Test "Won" tab ---
+    console.log('\n--- Checking "Won" tab bets ---');
+    // Query for bets where creator has won
+    const { data: wonBets, error: wonBetsError } = await supabase
+      .from('bets')
+      .select(`
+        id, 
+        description,
+        status,
+        bet_recipients!inner(
+          recipient_id,
+          status
+        )
+      `)
+      .eq('bet_recipients.recipient_id', CREATOR_USER_ID)
+      .eq('bet_recipients.status', 'won')
+      .eq('status', 'completed');
+      
+    if (wonBetsError) {
+      console.error('Error querying won bets:', wonBetsError);
+      throw new Error('Failed to query won bets.');
+    }
+    
+    console.log(`Found ${wonBets.length} bets in the "Won" tab:`, wonBets.map(b => ({id: b.id, description: b.description})));
+    
+    // --- Test "Lost" tab ---
+    console.log('\n--- Checking "Lost" tab bets ---');
+    // Query for bets where creator has lost
+    const { data: lostBets, error: lostBetsError } = await supabase
+      .from('bets')
+      .select(`
+        id, 
+        description,
+        status,
+        bet_recipients!inner(
+          recipient_id,
+          status
+        )
+      `)
+      .eq('bet_recipients.recipient_id', CREATOR_USER_ID)
+      .eq('bet_recipients.status', 'lost')
+      .eq('status', 'completed');
+      
+    if (lostBetsError) {
+      console.error('Error querying lost bets:', lostBetsError);
+      throw new Error('Failed to query lost bets.');
+    }
+    
+    console.log(`Found ${lostBets.length} bets in the "Lost" tab:`, lostBets.map(b => ({id: b.id, description: b.description})));
+
+    // Validate test results
+    // There should be at least one bet in each tab based on previously run tests
+    if (wonBets.length > 0 && lostBets.length > 0) {
+      // Verify that won bets have descriptions that match our opponent declare loss test
+      const hasOpponentDeclareLossBet = wonBets.some(bet => 
+        bet.description.includes('opponent declare loss test')
+      );
+      
+      // Verify that lost bets have descriptions that match our creator declare loss test
+      const hasCreatorDeclareLossBet = lostBets.some(bet => 
+        bet.description.includes('creator declare loss test')
+      );
+      
+      if (hasOpponentDeclareLossBet && hasCreatorDeclareLossBet) {
+        console.log('\n✅ BETS IN CORRECT TABS TEST: PASSED');
+      } else {
+        console.error('\n❌ BETS IN CORRECT TABS TEST: PARTIALLY FAILED');
+        console.error(`Expected to find 'opponent declare loss test' in Won tab: ${hasOpponentDeclareLossBet}`);
+        console.error(`Expected to find 'creator declare loss test' in Lost tab: ${hasCreatorDeclareLossBet}`);
+      }
+    } else {
+      console.error('\n❌ BETS IN CORRECT TABS TEST: FAILED');
+      console.error(`Expected to find at least one bet in each tab, but found ${wonBets.length} won bets and ${lostBets.length} lost bets.`);
+    }
+    
+    // Sign out creator
+    await supabase.auth.signOut();
+    console.log('Signed out creator user.');
+    
+  } catch (error) {
+    console.error('\n❌ BETS IN CORRECT TABS TEST: FAILED');
+    console.error('Error during bets in correct tabs test:', error);
+    await supabase.auth.signOut();
+  }
+}
+
 // Run tests in sequence
 async function runFullE2ETests() {
   try {
@@ -1067,6 +1174,9 @@ async function runFullE2ETests() {
     
     // Test opponent declaring victory
     await testOpponentDeclareVictory();
+    
+    // Test bets show up in correct tabs
+    await testBetsInCorrectTabs();
     
     console.log('\n=========================================');
     console.log('E2E TESTS COMPLETED');
