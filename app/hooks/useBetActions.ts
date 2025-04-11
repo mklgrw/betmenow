@@ -247,24 +247,36 @@ export const useBetActions = ({
       dispatch({ type: 'ACTION_START', payload: 'accept' });
       
       // Call accept_bet RPC function
-      const { data, error } = await supabase.rpc('secure_accept_bet', {
+      const { data, error } = await supabase.rpc('accept_bet', {
         p_recipient_id: recipientId
       });
       
+      // Handle error from RPC call
       if (error) {
-        console.error("Error accepting bet:", error);
+        console.error("Error calling accept_bet:", error);
         dispatch({ type: 'ACTION_ERROR', payload: error.message });
-        Alert.alert("Error", "Failed to accept bet. Please try again.");
+        Alert.alert("Error", "Failed to accept bet: " + error.message);
         return;
       }
       
+      // Handle custom error response from function
+      if (data && !data.success) {
+        console.error("Error accepting bet:", data.error);
+        dispatch({ type: 'ACTION_ERROR', payload: data.error });
+        Alert.alert("Error", "Failed to accept bet: " + data.error);
+        return;
+      }
+      
+      // Success case
       dispatch({ type: 'ACTION_SUCCESS' });
+      
+      if (data?.message) {
+        Alert.alert("Success", data.message);
+      }
       
       // Refresh bet data
       await fetchBetDetails();
       await fetchBets();
-      
-      // Success alert removed
     } catch (error) {
       console.error("Unexpected error in acceptBet:", error);
       dispatch({ type: 'ACTION_ERROR', payload: 'Unexpected error occurred' });
@@ -287,20 +299,32 @@ export const useBetActions = ({
         p_recipient_id: recipientId
       });
       
+      // Handle error from RPC call
       if (error) {
-        console.error("Error rejecting bet:", error);
+        console.error("Error calling reject_bet:", error);
         dispatch({ type: 'ACTION_ERROR', payload: error.message });
-        Alert.alert("Error", "Failed to reject bet. Please try again.");
+        Alert.alert("Error", "Failed to reject bet: " + error.message);
         return;
       }
       
+      // Handle custom error response from function
+      if (data && !data.success) {
+        console.error("Error rejecting bet:", data.error);
+        dispatch({ type: 'ACTION_ERROR', payload: data.error });
+        Alert.alert("Error", "Failed to reject bet: " + data.error);
+        return;
+      }
+      
+      // Success case
       dispatch({ type: 'ACTION_SUCCESS' });
+      
+      if (data?.message) {
+        Alert.alert("Success", data.message);
+      }
       
       // Refresh bet data
       await fetchBetDetails();
       await fetchBets();
-      
-      // Success alert removed
     } catch (error) {
       console.error("Unexpected error in rejectBet:", error);
       dispatch({ type: 'ACTION_ERROR', payload: 'Unexpected error occurred' });

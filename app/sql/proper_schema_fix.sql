@@ -187,35 +187,54 @@ EXECUTE FUNCTION update_bet_status_from_recipients();
 CREATE OR REPLACE FUNCTION reject_bet(
   p_recipient_id UUID
 )
-RETURNS BOOLEAN
+RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY INVOKER -- Run with caller's privileges
 AS $$
 DECLARE
   v_bet_id UUID;
   v_user_id UUID;
+  v_recipient_exists BOOLEAN;
+  v_is_authorized BOOLEAN;
 BEGIN
   -- Get current user
   v_user_id := auth.uid();
+  
+  IF v_user_id IS NULL THEN
+    RETURN jsonb_build_object(
+      'success', FALSE,
+      'error', 'Authentication required'
+    );
+  END IF;
+  
+  -- Check if recipient exists
+  SELECT EXISTS(SELECT 1 FROM bet_recipients WHERE id = p_recipient_id) INTO v_recipient_exists;
+  
+  IF NOT v_recipient_exists THEN
+    RETURN jsonb_build_object(
+      'success', FALSE,
+      'error', 'Recipient not found'
+    );
+  END IF;
   
   -- Get bet ID for this recipient
   SELECT bet_id INTO v_bet_id 
   FROM bet_recipients 
   WHERE id = p_recipient_id;
   
-  IF v_bet_id IS NULL THEN
-    RETURN FALSE;
-  END IF;
-  
   -- Check if user is authorized to update this recipient
-  IF NOT EXISTS (
+  SELECT EXISTS(
     SELECT 1 FROM bet_recipients 
     WHERE id = p_recipient_id AND 
           (recipient_id = v_user_id OR 
            EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bet_manager' AND pg_has_role(v_user_id, oid, 'member')))
-  ) THEN
-    RAISE EXCEPTION 'Not authorized to update this bet recipient';
-    RETURN FALSE;
+  ) INTO v_is_authorized;
+  
+  IF NOT v_is_authorized THEN
+    RETURN jsonb_build_object(
+      'success', FALSE,
+      'error', 'Not authorized to update this bet recipient'
+    );
   END IF;
   
   -- Update recipient status
@@ -223,10 +242,16 @@ BEGIN
   SET status = 'rejected'::bet_status_type
   WHERE id = p_recipient_id;
   
-  RETURN TRUE;
+  RETURN jsonb_build_object(
+    'success', TRUE,
+    'message', 'Bet rejected successfully'
+  );
 EXCEPTION WHEN OTHERS THEN
   RAISE NOTICE 'Error rejecting bet: %', SQLERRM;
-  RETURN FALSE;
+  RETURN jsonb_build_object(
+    'success', FALSE,
+    'error', 'Error rejecting bet: ' || SQLERRM
+  );
 END;
 $$;
 
@@ -234,35 +259,54 @@ $$;
 CREATE OR REPLACE FUNCTION accept_bet(
   p_recipient_id UUID
 )
-RETURNS BOOLEAN
+RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY INVOKER -- Run with caller's privileges
 AS $$
 DECLARE
   v_bet_id UUID;
   v_user_id UUID;
+  v_recipient_exists BOOLEAN;
+  v_is_authorized BOOLEAN;
 BEGIN
   -- Get current user
   v_user_id := auth.uid();
+  
+  IF v_user_id IS NULL THEN
+    RETURN jsonb_build_object(
+      'success', FALSE,
+      'error', 'Authentication required'
+    );
+  END IF;
+  
+  -- Check if recipient exists
+  SELECT EXISTS(SELECT 1 FROM bet_recipients WHERE id = p_recipient_id) INTO v_recipient_exists;
+  
+  IF NOT v_recipient_exists THEN
+    RETURN jsonb_build_object(
+      'success', FALSE,
+      'error', 'Recipient not found'
+    );
+  END IF;
   
   -- Get bet ID for this recipient
   SELECT bet_id INTO v_bet_id 
   FROM bet_recipients 
   WHERE id = p_recipient_id;
   
-  IF v_bet_id IS NULL THEN
-    RETURN FALSE;
-  END IF;
-  
   -- Check if user is authorized to update this recipient
-  IF NOT EXISTS (
+  SELECT EXISTS(
     SELECT 1 FROM bet_recipients 
     WHERE id = p_recipient_id AND 
           (recipient_id = v_user_id OR 
            EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'bet_manager' AND pg_has_role(v_user_id, oid, 'member')))
-  ) THEN
-    RAISE EXCEPTION 'Not authorized to update this bet recipient';
-    RETURN FALSE;
+  ) INTO v_is_authorized;
+  
+  IF NOT v_is_authorized THEN
+    RETURN jsonb_build_object(
+      'success', FALSE,
+      'error', 'Not authorized to update this bet recipient'
+    );
   END IF;
   
   -- Update recipient status
@@ -270,10 +314,16 @@ BEGIN
   SET status = 'in_progress'::bet_status_type
   WHERE id = p_recipient_id;
   
-  RETURN TRUE;
+  RETURN jsonb_build_object(
+    'success', TRUE,
+    'message', 'Bet accepted successfully'
+  );
 EXCEPTION WHEN OTHERS THEN
   RAISE NOTICE 'Error accepting bet: %', SQLERRM;
-  RETURN FALSE;
+  RETURN jsonb_build_object(
+    'success', FALSE,
+    'error', 'Error accepting bet: ' || SQLERRM
+  );
 END;
 $$;
 

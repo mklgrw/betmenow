@@ -14,15 +14,17 @@
     "rootDir": ".",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["app/*"],
-      "@env": ["node_modules/react-native-dotenv"]
+      "@/*": [
+        "app/*"
+      ],
+      "@env": [
+        "node_modules/react-native-dotenv"
+      ]
     }
   },
   "include": [
     "**/*.ts",
-    "**/*.tsx",
-    ".expo/types/**/*.ts",
-    "expo-env.d.ts"
+    "**/*.tsx"
   ],
   "exclude": [
     "node_modules",
@@ -30,4 +32,4 @@
     "jest.config.js",
     "dist"
   ]
-} 
+}
